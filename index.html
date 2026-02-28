@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>迷宫躲避陨石 - Maze Meteorite Escape</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #fff;
+            overflow-x: hidden;
+        }
+        
+        .header {
+            text-align: center;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(45deg, #ff6b6b, #feca57);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 30px rgba(255, 107, 107, 0.5);
+        }
+        
+        .subtitle {
+            color: #a0a0a0;
+            margin-top: 10px;
+            font-size: 1rem;
+        }
+        
+        .game-container {
+            position: relative;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(255, 165, 0, 0.3);
+        }
+        
+        #gameCanvas {
+            display: block;
+            background: #1a1a2e;
+        }
+        
+        .ui-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 10;
+        }
+        
+        .stat-box {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stat-box.score { color: #4ade80; }
+        .stat-box.lives { color: #f87171; }
+        .stat-box.meteors { color: #fb923c; }
+        
+        .controls {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .control-box {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 200px;
+        }
+        
+        .control-box h3 {
+            color: #feca57;
+            margin-bottom: 10px;
+        }
+        
+        .keys {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .key-row {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .key {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+            min-width: 45px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .download-section {
+            margin-top: 30px;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .download-btn {
+            background: linear-gradient(45deg, #ff6b6b, #feca57);
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .download-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(255, 107, 107, 0.5);
+        }
+        
+        .python-note {
+            margin-top: 15px;
+            color: #a0a0a0;
+            font-size: 0.9rem;
+        }
+        
+        #gameOverModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, #2d3436 0%, #1a1a2e 100%);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            border: 2px solid #ff6b6b;
+            box-shadow: 0 0 50px rgba(255, 107, 107, 0.3);
+        }
+        
+        .modal-content h2 {
+            font-size: 3rem;
+            color: #ff6b6b;
+            margin-bottom: 20px;
+        }
+        
+        .modal-content p {
+            font-size: 1.3rem;
+            margin: 15px 0;
+        }
+        
+        .restart-btn {
+            background: linear-gradient(45deg, #4ade80, #22d3ee);
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+        }
+        
+        .restart-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .mobile-controls {
+            display: none;
+            margin-top: 20px;
+            gap: 10px;
+        }
+        
+        .mobile-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: #fff;
+            padding: 20px;
+            font-size: 1.5rem;
+            border-radius: 10px;
+            cursor: pointer;
+            width: 70px;
+            height: 70px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .mobile-btn:active {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        @media (max-width: 768px) {
+            h1 { font-size: 1.8rem; }
+            .mobile-controls { display: flex; }
+            .controls { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔥 迷宫躲避陨石 🔥</h1>
+        <p class="subtitle">在迷宫中生存，躲避追踪你的陨石！</p>
+    </div>
+    
+    <div class="game-container">
+        <div class="ui-overlay">
+            <div class="stat-box score">得分: <span id="score">0</span></div>
+            <div class="stat-box lives">生命: <span id="lives">❤️❤️❤️</span></div>
+            <div class="stat-box meteors">陨石: <span id="meteors">3</span></div>
+        </div>
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+    </div>
+    
+    <div class="controls">
+        <div class="control-box">
+            <h3>移动控制</h3>
+            <div class="keys">
+                <div class="key-row"><div class="key">W ↑</div></div>
+                <div class="key-row">
+                    <div class="key">A ←</div>
+                    <div class="key">S ↓</div>
+                    <div class="key">D →</div>
+                </div>
+            </div>
+        </div>
+        <div class="control-box">
+            <h3>游戏目标</h3>
+            <p style="color: #a0a0a0; line-height: 1.6;">
+                🔸 在迷宫中移动躲避陨石<br>
+                🔸 存活时间越长得分越高<br>
+                🔸 陨石会越来越多！<br>
+                🔸 被击中会损失生命值
+            </p>
+        </div>
+    </div>
+    
+    <div class="mobile-controls">
+        <button class="mobile-btn" id="btnUp">↑</button>
+    </div>
+    <div class="mobile-controls">
+        <button class="mobile-btn" id="btnLeft">←</button>
+        <button class="mobile-btn" id="btnDown">↓</button>
+        <button class="mobile-btn" id="btnRight">→</button>
+    </div>
+    
+    <div class="download-section">
+        <a href="/game.py" download class="download-btn">
+            📥 下载 Python 源码
+        </a>
+        <p class="python-note">下载后使用 <code>python game.py</code> 运行（需要安装 pygame）</p>
+    </div>
+    
+    <div id="gameOverModal">
+        <div class="modal-content">
+            <h2>💀 GAME OVER 💀</h2>
+            <p>最终得分: <span id="finalScore" style="color: #4ade80; font-weight: bold;">0</span></p>
+            <p>存活时间: <span id="survivalTime" style="color: #feca57;">0</span> 秒</p>
+            <button class="restart-btn" onclick="restartGame()">🔄 重新开始</button>
+        </div>
+    </div>
+    
+    <script>
+        // 游戏常量
+        const CELL_SIZE = 30;
+        const COLS = Math.floor(800 / CELL_SIZE);
+        const ROWS = Math.floor(600 / CELL_SIZE);
+        
+        // 游戏状态
+        let maze = [];
+        let player = { x: 1, y: 1, lives: 3, invincibleTime: 0 };
+        let meteorites = [];
+        let score = 0;
+        let gameOver = false;
+        let startTime = Date.now();
+        let keys = {};
+        
+        // Canvas
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 迷宫生成（深度优先搜索）
+        function generateMaze() {
+            maze = Array(ROWS).fill(null).map(() => Array(COLS).fill(1));
+            const stack = [[1, 1]];
+            maze[1][1] = 0;
+            
+            const directions = [[0, 2], [2, 0], [0, -2], [-2, 0]];
+            
+            while (stack.length > 0) {
+                const [x, y] = stack[stack.length - 1];
+                const neighbors = [];
+                
+                for (const [dx, dy] of directions) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx > 0 && nx < COLS - 1 && ny > 0 && ny < ROWS - 1 && maze[ny][nx] === 1) {
+                        neighbors.push([nx, ny, dx / 2, dy / 2]);
+                    }
+                }
+                
+                if (neighbors.length > 0) {
+                    const [nx, ny, dx, dy] = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    maze[y + dy][x + dx] = 0;
+                    maze[ny][nx] = 0;
+                    stack.push([nx, ny]);
+                } else {
+                    stack.pop();
+                }
+            }
+            
+            // 添加额外通道
+            for (let i = 0; i < COLS * ROWS / 10; i++) {
+                const x = Math.floor(Math.random() * (COLS - 2)) + 1;
+                const y = Math.floor(Math.random() * (ROWS - 2)) + 1;
+                maze[y][x] = 0;
+            }
+        }
+        
+        // BFS 寻路
+        function findPath(start, end) {
+            const queue = [start];
+            const visited = new Set([start.toString()]);
+            const parent = new Map();
+            parent.set(start.toString(), null);
+            
+            const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+            
+            while (queue.length > 0) {
+                const current = queue.shift();
+                
+                if (current[0] === end[0] && current[1] === end[1]) {
+                    const path = [];
+                    let node = current.toString();
+                    while (node) {
+                        const [x, y] = node.split(',').map(Number);
+                        path.unshift([x, y]);
+                        node = parent.get(node);
+                    }
+                    return path;
+                }
+                
+                for (const [dx, dy] of directions) {
+                    const nx = current[0] + dx;
+                    const ny = current[1] + dy;
+                    const key = `${nx},${ny}`;
+                    
+                    if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && 
+                        maze[ny][nx] === 0 && !visited.has(key)) {
+                        visited.add(key);
+                        parent.set(key, current.toString());
+                        queue.push([nx, ny]);
+                    }
+                }
+            }
+            return [];
+        }
+        
+        // 陨石类
+        class Meteorite {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.speed = 0.06;
+                this.path = [];
+                this.rotation = Math.random() * 360;
+                this.trail = [];
+                this.pathTimer = 0;
+            }
+            
+            update() {
+                this.pathTimer++;
+                if (this.pathTimer >= 30 || this.path.length === 0) {
+                    this.pathTimer = 0;
+                    this.path = findPath(
+                        [Math.floor(this.x), Math.floor(this.y)],
+                        [Math.floor(player.x), Math.floor(player.y)]
+                    );
+                }
+                
+                if (this.path.length > 1) {
+                    const [tx, ty] = this.path[1];
+                    const dx = tx - this.x;
+                    const dy = ty - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist > 0) {
+                        this.x += (dx / dist) * this.speed;
+                        this.y += (dy / dist) * this.speed;
+                        this.rotation += 3;
+                        
+                        this.trail.push({ x: this.x, y: this.y });
+                        if (this.trail.length > 8) this.trail.shift();
+                    }
+                    
+                    if (dist < 0.1) {
+                        this.path.shift();
+                    }
+                }
+            }
+            
+            draw() {
+                // 绘制拖尾
+                this.trail.forEach((t, i) => {
+                    const alpha = (i / this.trail.length) * 0.4;
+                    const size = (CELL_SIZE / 2) * (i / this.trail.length);
+                    ctx.beginPath();
+                    ctx.arc(
+                        t.x * CELL_SIZE + CELL_SIZE / 2,
+                        t.y * CELL_SIZE + CELL_SIZE / 2,
+                        size, 0, Math.PI * 2
+                    );
+                    ctx.fillStyle = `rgba(255, 100, 0, ${alpha})`;
+                    ctx.fill();
+                });
+                
+                const cx = this.x * CELL_SIZE + CELL_SIZE / 2;
+                const cy = this.y * CELL_SIZE + CELL_SIZE / 2;
+                
+                // 绘制陨石
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(this.rotation * Math.PI / 180);
+                
+                ctx.beginPath();
+                for (let i = 0; i < 8; i++) {
+                    const angle = (i * 45) * Math.PI / 180;
+                    const radius = CELL_SIZE / 2 - 2 + Math.sin(Date.now() / 100 + i) * 3;
+                    const px = Math.cos(angle) * radius;
+                    const py = Math.sin(angle) * radius;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fillStyle = '#ff6b00';
+                ctx.fill();
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                ctx.restore();
+                
+                // 火焰效果
+                for (let i = 0; i < 3; i++) {
+                    const fx = cx + (Math.random() - 0.5) * 10;
+                    const fy = cy + (Math.random() - 0.5) * 10;
+                    ctx.beginPath();
+                    ctx.arc(fx, fy, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ffff00';
+                    ctx.fill();
+                }
+            }
+            
+            checkCollision() {
+                const dist = Math.sqrt((this.x - player.x) ** 2 + (this.y - player.y) ** 2);
+                return dist < 0.7;
+            }
+        }
+        
+        // 生成陨石
+        function spawnMeteorite() {
+            let attempts = 0;
+            while (attempts < 100) {
+                const x = Math.floor(Math.random() * (COLS - 2)) + 1;
+                const y = Math.floor(Math.random() * (ROWS - 2)) + 1;
+                
+                if (maze[y][x] === 0) {
+                    const dist = Math.sqrt((x - player.x) ** 2 + (y - player.y) ** 2);
+                    if (dist > 10) {
+                        meteorites.push(new Meteorite(x, y));
+                        return;
+                    }
+                }
+                attempts++;
+            }
+        }
+        
+        // 绘制迷宫
+        function drawMaze() {
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    if (maze[y][x] === 1) {
+                        ctx.fillStyle = '#3d3d5c';
+                        ctx.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        ctx.strokeStyle = '#4d4d6c';
+                        ctx.strokeRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    }
+                }
+            }
+        }
+        
+        // 绘制玩家
+        function drawPlayer() {
+            if (player.invincibleTime > 0 && Math.floor(player.invincibleTime / 5) % 2 === 0) {
+                return;
+            }
+            
+            const cx = player.x * CELL_SIZE + CELL_SIZE / 2;
+            const cy = player.y * CELL_SIZE + CELL_SIZE / 2;
+            
+            // 身体
+            ctx.beginPath();
+            ctx.arc(cx, cy, CELL_SIZE / 2 - 2, 0, Math.PI * 2);
+            ctx.fillStyle = '#4ade80';
+            ctx.fill();
+            ctx.strokeStyle = '#22c55e';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // 眼睛
+            ctx.beginPath();
+            ctx.arc(cx - 5, cy - 3, 4, 0, Math.PI * 2);
+            ctx.arc(cx + 5, cy - 3, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(cx - 5, cy - 3, 2, 0, Math.PI * 2);
+            ctx.arc(cx + 5, cy - 3, 2, 0, Math.PI * 2);
+            ctx.fillStyle = '#000';
+            ctx.fill();
+        }
+        
+        // 更新UI
+        function updateUI() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('lives').textContent = '❤️'.repeat(Math.max(0, player.lives));
+            document.getElementById('meteors').textContent = meteorites.length;
+        }
+        
+        // 游戏主循环
+        function gameLoop() {
+            if (gameOver) return;
+            
+            // 清屏
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, 800, 600);
+            
+            // 绘制迷宫
+            drawMaze();
+            
+            // 更新玩家位置
+            let dx = 0, dy = 0;
+            if (keys['ArrowLeft'] || keys['KeyA']) dx = -1;
+            if (keys['ArrowRight'] || keys['KeyD']) dx = 1;
+            if (keys['ArrowUp'] || keys['KeyW']) dy = -1;
+            if (keys['ArrowDown'] || keys['KeyS']) dy = 1;
+            
+            if (dx !== 0 || dy !== 0) {
+                const speed = 0.12;
+                const newX = player.x + dx * speed;
+                const newY = player.y + dy * speed;
+                
+                const cellX = Math.floor(newX);
+                const cellY = Math.floor(newY);
+                
+                if (cellX >= 0 && cellX < COLS && cellY >= 0 && cellY < ROWS && maze[cellY][cellX] === 0) {
+                    player.x = newX;
+                    player.y = newY;
+                }
+            }
+            
+            // 更新无敌时间
+            if (player.invincibleTime > 0) {
+                player.invincibleTime--;
+            }
+            
+            // 更新陨石
+            meteorites.forEach(m => {
+                m.update();
+                m.draw();
+                
+                // 检查碰撞
+                if (m.checkCollision() && player.invincibleTime === 0) {
+                    player.lives--;
+                    player.invincibleTime = 90;
+                    
+                    // 推开陨石
+                    const pushX = m.x - player.x;
+                    const pushY = m.y - player.y;
+                    const dist = Math.sqrt(pushX * pushX + pushY * pushY);
+                    if (dist > 0) {
+                        m.x += (pushX / dist) * 2;
+                        m.y += (pushY / dist) * 2;
+                    }
+                    m.path = [];
+                    
+                    if (player.lives <= 0) {
+                        gameOver = true;
+                        showGameOver();
+                    }
+                }
+            });
+            
+            // 绘制玩家
+            drawPlayer();
+            
+            // 更新分数
+            score = Math.floor((Date.now() - startTime) / 1000);
+            updateUI();
+            
+            // 每30秒增加一个陨石
+            if (score > 0 && score % 30 === 0 && meteorites.length < 10) {
+                const lastSpawnTime = window.lastSpawnTime || 0;
+                if (score !== lastSpawnTime) {
+                    window.lastSpawnTime = score;
+                    spawnMeteorite();
+                }
+            }
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // 显示游戏结束
+        function showGameOver() {
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('survivalTime').textContent = score;
+            document.getElementById('gameOverModal').style.display = 'flex';
+        }
+        
+        // 重新开始
+        function restartGame() {
+            document.getElementById('gameOverModal').style.display = 'none';
+            gameOver = false;
+            player = { x: 1, y: 1, lives: 3, invincibleTime: 0 };
+            meteorites = [];
+            score = 0;
+            startTime = Date.now();
+            window.lastSpawnTime = 0;
+            
+            generateMaze();
+            for (let i = 0; i < 3; i++) spawnMeteorite();
+            
+            gameLoop();
+        }
+        
+        // 键盘事件
+        document.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if (e.code === 'Space' && gameOver) {
+                restartGame();
+            }
+        });
+        
+        document.addEventListener('keyup', e => {
+            keys[e.code] = false;
+        });
+        
+        // 移动端控制
+        const mobileButtons = {
+            btnUp: ['ArrowUp', 'KeyW'],
+            btnDown: ['ArrowDown', 'KeyS'],
+            btnLeft: ['ArrowLeft', 'KeyA'],
+            btnRight: ['ArrowRight', 'KeyD']
+        };
+        
+        Object.entries(mobileButtons).forEach(([btnId, keyCodes]) => {
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                btn.addEventListener('touchstart', e => {
+                    e.preventDefault();
+                    keyCodes.forEach(code => keys[code] = true);
+                });
+                btn.addEventListener('touchend', e => {
+                    e.preventDefault();
+                    keyCodes.forEach(code => keys[code] = false);
+                });
+            }
+        });
+        
+        // 初始化游戏
+        generateMaze();
+        for (let i = 0; i < 3; i++) spawnMeteorite();
+        gameLoop();
+    </script>
+</body>
+</html>
