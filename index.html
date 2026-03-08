@@ -313,14 +313,15 @@
                 }
             }
 
-            // 确保入口出口区域畅通
-            for (let y = 1; y <= 3; y++) {
-                for (let x = 1; x <= 3; x++) {
+            // 确保入口区域畅通 (更大的安全区域)
+            for (let y = 0; y <= 5; y++) {
+                for (let x = 0; x <= 5; x++) {
                     m[y][x] = 0;
                 }
             }
-            for (let y = size-4; y <= size-2; y++) {
-                for (let x = size-4; x <= size-2; x++) {
+            // 确保出口区域畅通
+            for (let y = size-6; y <= size-1; y++) {
+                for (let x = size-6; x <= size-1; x++) {
                     m[y][x] = 0;
                 }
             }
@@ -408,12 +409,12 @@
                 emissive: 0x00ff00, 
                 emissiveIntensity: 0.5 
             });
-            const entrance = new THREE.Mesh(new THREE.BoxGeometry(cs, 0.1, cs), entranceMat);
-            entrance.position.set(2 * cs + cs/2, 0.1, 2 * cs + cs/2);
+            const entrance = new THREE.Mesh(new THREE.BoxGeometry(cs * 2, 0.1, cs * 2), entranceMat);
+            entrance.position.set(3 * cs + cs/2, 0.1, 3 * cs + cs/2);
             scene.add(entrance);
 
-            const entranceLight = new THREE.PointLight(0x00ff00, 2, 20);
-            entranceLight.position.set(2 * cs + cs/2, 2, 2 * cs + cs/2);
+            const entranceLight = new THREE.PointLight(0x00ff00, 2, 25);
+            entranceLight.position.set(3 * cs + cs/2, 2, 3 * cs + cs/2);
             scene.add(entranceLight);
 
             // 出口标记（金色）
@@ -422,19 +423,19 @@
                 emissive: 0xffd700, 
                 emissiveIntensity: 0.8 
             });
-            const exitMarker = new THREE.Mesh(new THREE.BoxGeometry(cs, 0.1, cs), exitMat);
-            exitMarker.position.set((size - 2) * cs + cs/2, 0.1, (size - 2) * cs + cs/2);
+            const exitMarker = new THREE.Mesh(new THREE.BoxGeometry(cs * 2, 0.1, cs * 2), exitMat);
+            exitMarker.position.set((size - 3) * cs + cs/2, 0.1, (size - 3) * cs + cs/2);
             exitMarker.name = 'exit';
             scene.add(exitMarker);
 
-            const exitLight = new THREE.PointLight(0xffd700, 3, 30);
-            exitLight.position.set((size - 2) * cs + cs/2, 2, (size - 2) * cs + cs/2);
+            const exitLight = new THREE.PointLight(0xffd700, 3, 35);
+            exitLight.position.set((size - 3) * cs + cs/2, 2, (size - 3) * cs + cs/2);
             scene.add(exitLight);
 
             const beamGeo = new THREE.CylinderGeometry(1, 1, wh, 16);
             const beamMat = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.2 });
             const beam = new THREE.Mesh(beamGeo, beamMat);
-            beam.position.set((size - 2) * cs + cs/2, wh / 2, (size - 2) * cs + cs/2);
+            beam.position.set((size - 3) * cs + cs/2, wh / 2, (size - 3) * cs + cs/2);
             scene.add(beam);
 
             // 玩家头顶灯
@@ -454,11 +455,11 @@
             let attempts = 0;
 
             while (placed < trapCount && attempts < 500) {
-                const gx = Math.floor(Math.random() * (size - 4)) + 2;
-                const gz = Math.floor(Math.random() * (size - 4)) + 2;
+                const gx = Math.floor(Math.random() * (size - 8)) + 4;
+                const gz = Math.floor(Math.random() * (size - 8)) + 4;
 
                 // 检查是否在通道上，且不在入口/出口附近
-                if (maze[gz][gx] === 0 && !(gx <= 4 && gz <= 4) && !(gx >= size-5 && gz >= size-5)) {
+                if (maze[gz][gx] === 0 && !(gx <= 6 && gz <= 6) && !(gx >= size-7 && gz >= size-7)) {
                     // 检查是否与已有陷阱相邻（不能连续出现）
                     const hasAdjacent = traps.some(t => Math.abs(t.gx - gx) + Math.abs(t.gz - gz) <= 1);
                     if (!hasAdjacent) {
@@ -602,10 +603,10 @@
             let attempts = 0;
 
             while (placed < zombieCount && attempts < 200) {
-                const gx = Math.floor(Math.random() * (size - 6)) + 3;
-                const gz = Math.floor(Math.random() * (size - 6)) + 3;
+                const gx = Math.floor(Math.random() * (size - 10)) + 5;
+                const gz = Math.floor(Math.random() * (size - 10)) + 5;
 
-                if (maze[gz][gx] === 0 && !(gx <= 5 && gz <= 5) && !(gx >= size-6 && gz >= size-6)) {
+                if (maze[gz][gx] === 0 && !(gx <= 7 && gz <= 7) && !(gx >= size-8 && gz >= size-8)) {
                     const tooClose = zombies.some(z => Math.abs(z.gx - gx) + Math.abs(z.gz - gz) < 4);
                     if (!tooClose) {
                         zombies.push(new Zombie(gx, gz, cs));
@@ -649,25 +650,34 @@
             const size = CONFIG.MAZE_SIZE;
             const cs = CONFIG.CELL_SIZE;
             
-            const gx = Math.floor(x / cs);
-            const gz = Math.floor(z / cs);
+            // 墙壁中心在 (col*cs + cs/2, row*cs + cs/2)
+            // 格子 col 的范围是 [col*cs, (col+1)*cs)
+            // 所以世界坐标 x 对应格子 Math.floor(x / cs)
+            const col = Math.floor(x / cs);
+            const row = Math.floor(z / cs);
             
-            if (gx < 0 || gx >= size || gz < 0 || gz >= size) return true;
-            return maze[gz][gx] === 1;
+            // 边界检查
+            if (col < 0 || col >= size || row < 0 || row >= size) return true;
+            
+            // 迷宫数组: maze[row][col]
+            return maze[row][col] === 1;
         }
 
         function canMove(x, z, radius = CONFIG.PLAYER_RADIUS) {
-            return !isWall(x - radius, z - radius) &&
-                   !isWall(x + radius, z - radius) &&
-                   !isWall(x - radius, z + radius) &&
-                   !isWall(x + radius, z + radius);
+            // 检查玩家包围盒的四个角是否碰到墙
+            // 添加额外的小偏移避免浮点精度问题
+            const margin = 0.05;
+            return !isWall(x - radius + margin, z - radius + margin) &&
+                   !isWall(x + radius - margin, z - radius + margin) &&
+                   !isWall(x - radius + margin, z + radius - margin) &&
+                   !isWall(x + radius - margin, z + radius - margin);
         }
 
         function checkWin() {
             const size = CONFIG.MAZE_SIZE;
             const cs = CONFIG.CELL_SIZE;
-            const exitX = (size - 2) * cs + cs / 2;
-            const exitZ = (size - 2) * cs + cs / 2;
+            const exitX = (size - 3) * cs + cs / 2;
+            const exitZ = (size - 3) * cs + cs / 2;
             
             const dx = player.pos.x - exitX;
             const dz = player.pos.z - exitZ;
@@ -732,8 +742,8 @@
             }
             
             // 出口
-            const exitX = size - 2;
-            const exitZ = size - 2;
+            const exitX = size - 3;
+            const exitZ = size - 3;
             const edx = exitX - px;
             const edz = exitZ - pz;
             if (Math.abs(edx) <= range && Math.abs(edz) <= range) {
@@ -896,7 +906,8 @@
             createMaze();
 
             const cs = CONFIG.CELL_SIZE;
-            player.pos.set(2 * cs + cs / 2, CONFIG.PLAYER_HEIGHT, 2 * cs + cs / 2);
+            // 玩家初始位置在格子(3,3)中心，确保在安全区域内
+            player.pos.set(3 * cs + cs / 2, CONFIG.PLAYER_HEIGHT, 3 * cs + cs / 2);
             player.vel.set(0, 0, 0);
             player.rotY = 0;
             player.rotX = 0;
