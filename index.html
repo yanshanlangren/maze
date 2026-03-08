@@ -577,14 +577,15 @@
             floor.receiveShadow = true;
             mazeGroup.add(floor);
             
-            // 创建墙壁
-            const wallGeometry = new THREE.BoxGeometry(cellSize, wallHeight, cellSize);
+            // 创建墙壁（延伸到天花板）
+            const ceilingHeight = wallHeight + cellSize;
+            const wallGeometry = new THREE.BoxGeometry(cellSize, ceilingHeight, cellSize);
             
             for (let y = 0; y < size; y++) {
                 for (let x = 0; x < size; x++) {
                     if (mazeData[y][x] === 1) {
                         const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-                        wall.position.set(x * cellSize, wallHeight / 2, y * cellSize);
+                        wall.position.set(x * cellSize, ceilingHeight / 2, y * cellSize);
                         wall.castShadow = true;
                         wall.receiveShadow = true;
                         mazeGroup.add(wall);
@@ -592,7 +593,7 @@
                 }
             }
             
-            // 创建天花板（封闭迷宫）
+            // 创建天花板（封闭迷宫，比跳跃高度高一格）
             const ceilingMaterial = new THREE.MeshStandardMaterial({ 
                 color: 0x1a1a2e,
                 roughness: 0.9,
@@ -601,12 +602,12 @@
             const ceilingGeometry = new THREE.PlaneGeometry(size * cellSize, size * cellSize);
             const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
             ceiling.rotation.x = Math.PI / 2;
-            ceiling.position.set(size * cellSize / 2 - cellSize / 2, wallHeight, size * cellSize / 2 - cellSize / 2);
+            ceiling.position.set(size * cellSize / 2 - cellSize / 2, ceilingHeight, size * cellSize / 2 - cellSize / 2);
             mazeGroup.add(ceiling);
             
             // 天花板灯光（让迷宫更明亮）
             const ceilingLight = new THREE.PointLight(0x8888ff, 0.5, 100);
-            ceilingLight.position.set(size * cellSize / 2, wallHeight - 0.5, size * cellSize / 2);
+            ceilingLight.position.set(size * cellSize / 2, ceilingHeight - 0.5, size * cellSize / 2);
             mazeGroup.add(ceilingLight);
             
             // 创建入口标记（绿色）
@@ -678,11 +679,17 @@
                 const x = Math.floor(Math.random() * (size - 2)) + 1;
                 const z = Math.floor(Math.random() * (size - 2)) + 1;
                 
-                // 确保在通道上，且不在入口、出口
+                // 确保在通道上，且不在入口、出口附近
                 if (mazeData[z][x] === 0 && !(x === 1 && z === 1) && !(x === size - 2 && z === size - 2)) {
                     // 检查是否已有陷阱
                     const hasTrap = traps.some(t => t.x === x && t.z === z);
-                    if (!hasTrap) {
+                    
+                    // 检查相邻格子是否有陷阱（避免连续陷阱）
+                    const hasAdjacentTrap = traps.some(t => 
+                        (Math.abs(t.x - x) + Math.abs(t.z - z)) <= 1
+                    );
+                    
+                    if (!hasTrap && !hasAdjacentTrap) {
                         const trap = createTrap(x, z, cellSize);
                         traps.push(trap);
                         placed++;
@@ -693,8 +700,9 @@
         }
         
         function createTrap(x, z, cellSize) {
-            // 创建陷阱模型（红色发光的地板区域）
-            const geometry = new THREE.BoxGeometry(cellSize * 0.9, 0.15, cellSize * 0.9);
+            // 陷阱更小（50%大小），可以贴墙通过
+            const trapSize = cellSize * 0.5;
+            const geometry = new THREE.BoxGeometry(trapSize, 0.15, trapSize);
             const material = new THREE.MeshStandardMaterial({ 
                 color: 0xff0000, 
                 emissive: 0xff0000,
@@ -706,7 +714,7 @@
             mesh.position.set(x * cellSize, 0.08, z * cellSize);
             scene.add(mesh);
             
-            return { x, z, mesh, cellSize };
+            return { x, z, mesh, cellSize, trapSize };
         }
         
         function checkTrapCollision() {
@@ -715,9 +723,10 @@
             for (const trap of traps) {
                 const px = player.position.x / CONFIG.CELL_SIZE;
                 const pz = player.position.z / CONFIG.CELL_SIZE;
+                // 碰撞范围与陷阱大小匹配（0.25格半径）
                 const dist = Math.sqrt((px - trap.x) ** 2 + (pz - trap.z) ** 2);
                 
-                if (dist < 0.6) {
+                if (dist < 0.25) {
                     return true;
                 }
             }
