@@ -19,19 +19,29 @@
         .stat-box {
             position: absolute;
             top: 20px; left: 20px;
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.8);
             color: #fff;
             padding: 10px 15px;
-            border-radius: 5px;
+            border-radius: 8px;
             font-size: 16px;
+            border: 1px solid rgba(255,255,255,0.2);
         }
         
-        #minimap {
+        .stat-box .level { color: #ffd700; font-weight: bold; }
+        .stat-box .lives { color: #ff6b6b; }
+        .stat-box .zombies { color: #9370db; }
+        
+        #minimapContainer {
             position: absolute;
             top: 80px; left: 20px;
-            background: rgba(0,0,0,0.8);
-            border: 2px solid #444;
+            background: rgba(0,0,0,0.9);
+            border-radius: 8px;
+            padding: 10px;
+            border: 2px solid rgba(255,255,255,0.3);
         }
+        
+        #minimapTitle { color: #aaa; font-size: 12px; margin-bottom: 5px; text-align: center; }
+        #minimap { display: block; }
         
         .crosshair {
             position: absolute;
@@ -51,14 +61,47 @@
             position: absolute;
             bottom: 20px; left: 50%;
             transform: translateX(-50%);
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.8);
             color: #aaa;
-            padding: 10px 20px;
-            border-radius: 5px;
+            padding: 12px 25px;
+            border-radius: 8px;
             font-size: 14px;
         }
         
-        #startScreen, #winScreen {
+        .hint span { 
+            display: inline-block;
+            background: rgba(255,255,255,0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin: 0 3px;
+        }
+        
+        .warning {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(255,0,0,0.4) 100%);
+            opacity: 0;
+            transition: opacity 0.1s;
+        }
+        .warning.active { opacity: 1; }
+        
+        .attack-hint {
+            position: absolute;
+            bottom: 80px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255,200,0,0.9);
+            color: #000;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .attack-hint.show { opacity: 1; }
+        
+        #startScreen, #winScreen, #gameOver {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
@@ -66,26 +109,48 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            background: rgba(0,0,0,0.9);
+            background: rgba(0,0,0,0.95);
             z-index: 100;
         }
         
-        #winScreen { display: none; }
+        #winScreen, #gameOver { display: none; }
         
-        h1 { color: #ffd700; font-size: 3rem; margin-bottom: 20px; }
-        p { color: #aaa; margin-bottom: 30px; }
+        h1 { color: #ffd700; font-size: 3rem; margin-bottom: 15px; text-shadow: 0 0 30px rgba(255,215,0,0.5); }
+        .subtitle { color: #ff6b6b; font-size: 1.2rem; margin-bottom: 40px; }
+        
+        .instructions {
+            margin-top: 30px;
+            color: #888;
+            text-align: center;
+            line-height: 2;
+        }
+        .instructions .key {
+            display: inline-block;
+            background: rgba(255,255,255,0.1);
+            padding: 4px 12px;
+            border-radius: 4px;
+            margin: 0 3px;
+        }
         
         button {
-            background: #ffd700;
+            background: linear-gradient(45deg, #ffd700, #ffaa00);
             color: #000;
             border: none;
-            padding: 15px 40px;
-            font-size: 1.2rem;
-            border-radius: 30px;
+            padding: 18px 50px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            border-radius: 50px;
             cursor: pointer;
             pointer-events: auto;
+            transition: all 0.3s;
         }
-        button:hover { background: #ffaa00; }
+        button:hover { transform: scale(1.1); box-shadow: 0 0 40px rgba(255,215,0,0.6); }
+        
+        .restart-btn {
+            background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
+            color: #fff;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
@@ -93,29 +158,50 @@
     
     <div id="ui">
         <div class="stat-box">
-            <span style="color:#ffd700">关卡: <span id="level">1</span></span> | 
-            <span style="color:#ff6b6b">生命: <span id="lives">❤️❤️❤️</span></span>
+            <span class="level">关卡: <span id="level">1</span> / 16</span> | 
+            <span class="lives">生命: <span id="lives">❤️❤️❤️</span></span> |
+            <span class="zombies">僵尸: <span id="zombieCount">0</span></span>
         </div>
-        <canvas id="minimap" width="160" height="160"></canvas>
+        
+        <div id="minimapContainer">
+            <div id="minimapTitle">小地图 (16x16)</div>
+            <canvas id="minimap" width="160" height="160"></canvas>
+        </div>
+        
         <div class="crosshair"></div>
-        <div class="hint">WASD移动 | 空格跳跃 | 鼠标转向 | 到达金色出口过关</div>
+        <div class="warning" id="warning"></div>
+        <div class="attack-hint" id="attackHint">左键攻击僵尸!</div>
+        
+        <div class="hint">
+            <span>WASD</span> 移动 | <span>空格</span> 跳跃 | <span>鼠标</span> 转向 | <span>左键</span> 攻击僵尸
+        </div>
     </div>
     
     <div id="startScreen">
-        <h1>🎮 3D迷宫逃脱</h1>
-        <p>探索迷宫，找到金色出口！</p>
+        <h1>3D迷宫逃脱</h1>
+        <p class="subtitle">探索迷宫，躲避陷阱与僵尸，找到出口！</p>
         <button id="startBtn">开始游戏</button>
+        <div class="instructions">
+            <p><span class="key">WASD</span> 移动 | <span class="key">空格</span> 跳跃 | <span class="key">鼠标</span> 转向 | <span class="key">左键</span> 攻击</p>
+            <p><span style="color:#00ff00">绿色</span> 起点 | <span style="color:#ffd700">金色</span> 终点 | <span style="color:#ff0000">红色</span> 陷阱 | <span style="color:#9370db">紫色</span> 僵尸</p>
+        </div>
+    </div>
+    
+    <div id="gameOver">
+        <h1 style="color:#ff6b6b">游戏结束</h1>
+        <p style="color:#aaa;margin-bottom:30px">你在第 <span id="deathLevel">1</span> 关倒下了...</p>
+        <button class="restart-btn" id="restartBtn">重新开始</button>
     </div>
     
     <div id="winScreen">
-        <h1>🏆 恭喜通关！</h1>
-        <p>你成功逃出了迷宫！</p>
+        <h1>恭喜通关！</h1>
+        <p style="color:#ffd700;font-size:1.3rem;margin-bottom:30px">你成功通过了所有16关！</p>
         <button id="replayBtn">再玩一次</button>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        // 配置
+        // ========== 配置 ==========
         const CONFIG = {
             MAZE_SIZE: 32,
             CELL_SIZE: 4,
@@ -125,9 +211,11 @@
             MOVE_SPEED: 6,
             JUMP_FORCE: 8,
             GRAVITY: 20,
+            TRAP_DAMAGE_COOLDOWN: 1000,  // 陷阱伤害冷却ms
+            ZOMBIE_STUN_TIME: 3000,      // 僵尸眩晕时间ms
         };
 
-        // 全局变量
+        // ========== 全局状态 ==========
         let scene, camera, renderer, minimapCtx;
         let maze = [];
         let player = {
@@ -136,13 +224,17 @@
             rotY: 0,
             rotX: 0,
             grounded: true,
-            lives: 3
+            lives: 3,
+            lastDamageTime: 0
         };
         let keys = {};
         let level = 1;
         let running = false;
+        let traps = [];
+        let zombies = [];
+        let canAttack = true;
 
-        // 初始化Three.js
+        // ========== 初始化 ==========
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a2e);
@@ -156,12 +248,11 @@
 
             // 光照
             scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-            
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
             dirLight.position.set(50, 100, 50);
             scene.add(dirLight);
 
-            // 事件
+            // 事件监听
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
@@ -171,11 +262,10 @@
             document.addEventListener('keydown', e => keys[e.code] = true);
             document.addEventListener('keyup', e => keys[e.code] = false);
             document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('click', () => {
-                if (running) document.body.requestPointerLock();
-            });
+            document.addEventListener('click', onMouseClick);
 
             document.getElementById('startBtn').onclick = startGame;
+            document.getElementById('restartBtn').onclick = startGame;
             document.getElementById('replayBtn').onclick = startGame;
 
             animate();
@@ -188,12 +278,16 @@
             player.rotX = Math.max(-Math.PI/4, Math.min(Math.PI/4, player.rotX));
         }
 
-        // 迷宫生成 (DFS)
+        function onMouseClick() {
+            if (!running) return;
+            document.body.requestPointerLock();
+            if (canAttack) attackZombie();
+        }
+
+        // ========== 迷宫生成 (DFS) ==========
         function generateMaze(size) {
-            // 初始化全为墙
             const m = Array(size).fill(null).map(() => Array(size).fill(1));
             
-            // DFS挖通道
             const stack = [[1, 1]];
             m[1][1] = 0;
             
@@ -234,12 +328,21 @@
             return m;
         }
 
-        // 创建3D迷宫
+        // ========== 创建3D迷宫 ==========
         function createMaze() {
-            // 清除旧场景
-            while (scene.children.length > 2) {
-                scene.remove(scene.children[scene.children.length - 1]);
-            }
+            // 清除旧场景对象
+            const toRemove = [];
+            scene.traverse(obj => {
+                if (obj.type === 'Mesh' || obj.type === 'PointLight') {
+                    if (obj.name !== 'ambient' && obj.name !== 'directional') {
+                        toRemove.push(obj);
+                    }
+                }
+            });
+            toRemove.forEach(obj => scene.remove(obj));
+            
+            traps = [];
+            zombies = [];
 
             const size = CONFIG.MAZE_SIZE;
             const cs = CONFIG.CELL_SIZE;
@@ -272,13 +375,12 @@
             // 边界墙
             const boundaryMat = new THREE.MeshStandardMaterial({ color: 0x4a4a5a });
             
-            // 外围四墙（完全封闭）
-            const northWall = new THREE.Mesh(new THREE.BoxGeometry(size * cs, wh, cs), boundaryMat);
+            const northWall = new THREE.Mesh(new THREE.BoxGeometry(size * cs + cs*2, wh, cs), boundaryMat);
             northWall.position.set(size * cs / 2, wh / 2, -cs / 2);
             scene.add(northWall);
             
-            const southWall = new THREE.Mesh(new THREE.BoxGeometry(size * cs, wh, cs), boundaryMat);
-            southWall.position.set(size * cs / 2, wh / 2, size * cs - cs / 2);
+            const southWall = new THREE.Mesh(new THREE.BoxGeometry(size * cs + cs*2, wh, cs), boundaryMat);
+            southWall.position.set(size * cs / 2, wh / 2, size * cs + cs / 2);
             scene.add(southWall);
             
             const westWall = new THREE.Mesh(new THREE.BoxGeometry(cs, wh, size * cs), boundaryMat);
@@ -286,7 +388,7 @@
             scene.add(westWall);
             
             const eastWall = new THREE.Mesh(new THREE.BoxGeometry(cs, wh, size * cs), boundaryMat);
-            eastWall.position.set(size * cs - cs / 2, wh / 2, size * cs / 2);
+            eastWall.position.set(size * cs + cs / 2, wh / 2, size * cs / 2);
             scene.add(eastWall);
 
             // 内部墙壁
@@ -310,7 +412,6 @@
             entrance.position.set(2 * cs + cs/2, 0.1, 2 * cs + cs/2);
             scene.add(entrance);
 
-            // 入口灯光
             const entranceLight = new THREE.PointLight(0x00ff00, 2, 20);
             entranceLight.position.set(2 * cs + cs/2, 2, 2 * cs + cs/2);
             scene.add(entranceLight);
@@ -326,12 +427,10 @@
             exitMarker.name = 'exit';
             scene.add(exitMarker);
 
-            // 出口灯光
             const exitLight = new THREE.PointLight(0xffd700, 3, 30);
             exitLight.position.set((size - 2) * cs + cs/2, 2, (size - 2) * cs + cs/2);
             scene.add(exitLight);
 
-            // 出口光柱
             const beamGeo = new THREE.CylinderGeometry(1, 1, wh, 16);
             const beamMat = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.2 });
             const beam = new THREE.Mesh(beamGeo, beamMat);
@@ -342,33 +441,228 @@
             const playerLight = new THREE.PointLight(0xffffff, 0.8, 15);
             playerLight.name = 'playerLight';
             scene.add(playerLight);
+
+            // 生成陷阱和僵尸
+            generateTraps(size, cs);
+            generateZombies(size, cs);
         }
 
-        // 碰撞检测
+        // ========== 陷阱系统 ==========
+        function generateTraps(size, cs) {
+            const trapCount = 15 + level * 3;
+            let placed = 0;
+            let attempts = 0;
+
+            while (placed < trapCount && attempts < 500) {
+                const gx = Math.floor(Math.random() * (size - 4)) + 2;
+                const gz = Math.floor(Math.random() * (size - 4)) + 2;
+
+                // 检查是否在通道上，且不在入口/出口附近
+                if (maze[gz][gx] === 0 && !(gx <= 4 && gz <= 4) && !(gx >= size-5 && gz >= size-5)) {
+                    // 检查是否与已有陷阱相邻（不能连续出现）
+                    const hasAdjacent = traps.some(t => Math.abs(t.gx - gx) + Math.abs(t.gz - gz) <= 1);
+                    if (!hasAdjacent) {
+                        const trapMat = new THREE.MeshStandardMaterial({ 
+                            color: 0xff0000, 
+                            emissive: 0xff0000, 
+                            emissiveIntensity: 0.4,
+                            transparent: true,
+                            opacity: 0.8
+                        });
+                        const trapMesh = new THREE.Mesh(new THREE.BoxGeometry(cs * 0.8, 0.15, cs * 0.8), trapMat);
+                        trapMesh.position.set(gx * cs + cs/2, 0.1, gz * cs + cs/2);
+                        scene.add(trapMesh);
+                        
+                        traps.push({ gx, gz, mesh: trapMesh });
+                        placed++;
+                    }
+                }
+                attempts++;
+            }
+        }
+
+        function checkTrapDamage() {
+            if (!player.grounded) return false;  // 跳跃中不受伤
+            
+            const now = Date.now();
+            if (now - player.lastDamageTime < CONFIG.TRAP_DAMAGE_COOLDOWN) return false;
+
+            const cs = CONFIG.CELL_SIZE;
+            const px = Math.floor(player.pos.x / cs);
+            const pz = Math.floor(player.pos.z / cs);
+
+            for (const trap of traps) {
+                if (trap.gx === px && trap.gz === pz) {
+                    player.lastDamageTime = now;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // ========== 僵尸系统 ==========
+        class Zombie {
+            constructor(gx, gz, cs) {
+                this.gx = gx;
+                this.gz = gz;
+                this.cs = cs;
+                this.speed = 1.5 + level * 0.2;
+                this.stunned = false;
+                this.stunEndTime = 0;
+                this.attackCooldown = 0;
+
+                // 僵尸身体
+                const bodyGeo = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
+                const bodyMat = new THREE.MeshStandardMaterial({ 
+                    color: 0x9370db, 
+                    emissive: 0x4a0080, 
+                    emissiveIntensity: 0.3
+                });
+                this.mesh = new THREE.Mesh(bodyGeo, bodyMat);
+                this.mesh.position.set(gx * cs + cs/2, 1, gz * cs + cs/2);
+                scene.add(this.mesh);
+
+                // 眼睛
+                const eyeGeo = new THREE.SphereGeometry(0.1, 8, 8);
+                const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+                leftEye.position.set(-0.15, 0.3, 0.35);
+                this.mesh.add(leftEye);
+                const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+                rightEye.position.set(0.15, 0.3, 0.35);
+                this.mesh.add(rightEye);
+            }
+
+            update(dt) {
+                const now = Date.now();
+
+                // 眩晕状态
+                if (this.stunned) {
+                    if (now > this.stunEndTime) {
+                        this.stunned = false;
+                        this.mesh.material.emissive.setHex(0x4a0080);
+                    }
+                    this.mesh.rotation.z = Math.sin(now / 100) * 0.3;
+                    return false;
+                }
+
+                this.mesh.rotation.z = 0;
+
+                if (this.attackCooldown > 0) {
+                    this.attackCooldown -= dt;
+                }
+
+                // 追踪玩家
+                const dx = player.pos.x - this.mesh.position.x;
+                const dz = player.pos.z - this.mesh.position.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+
+                // 攻击检测
+                if (dist < 1.5 && this.attackCooldown <= 0) {
+                    this.attackCooldown = 1;
+                    return true;  // 返回true表示攻击了玩家
+                }
+
+                // 移动
+                if (dist > 1) {
+                    const moveX = (dx / dist) * this.speed * dt;
+                    const moveZ = (dz / dist) * this.speed * dt;
+
+                    const newX = this.mesh.position.x + moveX;
+                    const newZ = this.mesh.position.z + moveZ;
+
+                    // 检查碰撞
+                    if (canMove(newX, this.mesh.position.z, 0.4)) {
+                        this.mesh.position.x = newX;
+                    }
+                    if (canMove(this.mesh.position.x, newZ, 0.4)) {
+                        this.mesh.position.z = newZ;
+                    }
+
+                    this.mesh.rotation.y = Math.atan2(dx, dz);
+                }
+
+                return false;
+            }
+
+            stun() {
+                this.stunned = true;
+                this.stunEndTime = Date.now() + CONFIG.ZOMBIE_STUN_TIME;
+                this.mesh.material.emissive.setHex(0xffff00);
+            }
+
+            remove() {
+                scene.remove(this.mesh);
+            }
+        }
+
+        function generateZombies(size, cs) {
+            const zombieCount = Math.min(2 + level, 8);
+            let placed = 0;
+            let attempts = 0;
+
+            while (placed < zombieCount && attempts < 200) {
+                const gx = Math.floor(Math.random() * (size - 6)) + 3;
+                const gz = Math.floor(Math.random() * (size - 6)) + 3;
+
+                if (maze[gz][gx] === 0 && !(gx <= 5 && gz <= 5) && !(gx >= size-6 && gz >= size-6)) {
+                    const tooClose = zombies.some(z => Math.abs(z.gx - gx) + Math.abs(z.gz - gz) < 4);
+                    if (!tooClose) {
+                        zombies.push(new Zombie(gx, gz, cs));
+                        placed++;
+                    }
+                }
+                attempts++;
+            }
+        }
+
+        function attackZombie() {
+            canAttack = false;
+            setTimeout(() => canAttack = true, 500);
+
+            const attackRange = 3;
+            const attackAngle = Math.PI / 3;
+
+            for (const zombie of zombies) {
+                if (zombie.stunned) continue;
+
+                const dx = zombie.mesh.position.x - player.pos.x;
+                const dz = zombie.mesh.position.z - player.pos.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+
+                if (dist < attackRange) {
+                    const angleToZombie = Math.atan2(dx, dz);
+                    let angleDiff = angleToZombie - player.rotY;
+                    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+                    if (Math.abs(angleDiff) < attackAngle) {
+                        zombie.stun();
+                        break;
+                    }
+                }
+            }
+        }
+
+        // ========== 碰撞检测 ==========
         function isWall(x, z) {
             const size = CONFIG.MAZE_SIZE;
             const cs = CONFIG.CELL_SIZE;
             
-            // 转换为格子索引
             const gx = Math.floor(x / cs);
             const gz = Math.floor(z / cs);
             
-            // 边界检查
             if (gx < 0 || gx >= size || gz < 0 || gz >= size) return true;
-            
             return maze[gz][gx] === 1;
         }
 
-        function canMove(newX, newZ) {
-            const r = CONFIG.PLAYER_RADIUS;
-            // 检查四个角
-            return !isWall(newX - r, newZ - r) &&
-                   !isWall(newX + r, newZ - r) &&
-                   !isWall(newX - r, newZ + r) &&
-                   !isWall(newX + r, newZ + r);
+        function canMove(x, z, radius = CONFIG.PLAYER_RADIUS) {
+            return !isWall(x - radius, z - radius) &&
+                   !isWall(x + radius, z - radius) &&
+                   !isWall(x - radius, z + radius) &&
+                   !isWall(x + radius, z + radius);
         }
 
-        // 检查是否到达出口
         function checkWin() {
             const size = CONFIG.MAZE_SIZE;
             const cs = CONFIG.CELL_SIZE;
@@ -381,14 +675,13 @@
             return Math.sqrt(dx * dx + dz * dz) < cs;
         }
 
-        // 更新小地图
+        // ========== 小地图 ==========
         function updateMinimap() {
             const ctx = minimapCtx;
             const canvas = ctx.canvas;
             const size = CONFIG.MAZE_SIZE;
             const cs = CONFIG.CELL_SIZE;
             
-            // 玩家位置（格子索引）
             const px = Math.floor(player.pos.x / cs);
             const pz = Math.floor(player.pos.z / cs);
             const range = 8;
@@ -416,6 +709,28 @@
                 }
             }
             
+            // 陷阱
+            ctx.fillStyle = '#ff0000';
+            for (const trap of traps) {
+                const dx = trap.gx - px;
+                const dz = trap.gz - pz;
+                if (Math.abs(dx) <= range && Math.abs(dz) <= range) {
+                    ctx.fillRect((dx + range) * cellPx + 2, (dz + range) * cellPx + 2, cellPx - 4, cellPx - 4);
+                }
+            }
+            
+            // 僵尸
+            ctx.fillStyle = '#9370db';
+            for (const zombie of zombies) {
+                const dx = Math.floor(zombie.mesh.position.x / cs) - px;
+                const dz = Math.floor(zombie.mesh.position.z / cs) - pz;
+                if (Math.abs(dx) <= range && Math.abs(dz) <= range) {
+                    ctx.beginPath();
+                    ctx.arc((dx + range) * cellPx + cellPx/2, (dz + range) * cellPx + cellPx/2, cellPx/2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            
             // 出口
             const exitX = size - 2;
             const exitZ = size - 2;
@@ -431,13 +746,53 @@
             ctx.beginPath();
             ctx.arc(canvas.width / 2, canvas.height / 2, cellPx / 2, 0, Math.PI * 2);
             ctx.fill();
+            
+            // 玩家朝向
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, canvas.height / 2);
+            ctx.lineTo(
+                canvas.width / 2 - Math.sin(player.rotY) * cellPx,
+                canvas.height / 2 - Math.cos(player.rotY) * cellPx
+            );
+            ctx.stroke();
         }
 
-        // 游戏主循环
+        // ========== 玩家受伤 ==========
+        function playerHit() {
+            player.lives--;
+            updateLives();
+            
+            const warning = document.getElementById('warning');
+            warning.classList.add('active');
+            setTimeout(() => warning.classList.remove('active'), 300);
+            
+            if (player.lives <= 0) {
+                gameOver();
+            }
+        }
+
+        function updateLives() {
+            document.getElementById('lives').textContent = '❤️'.repeat(Math.max(0, player.lives));
+            document.getElementById('zombieCount').textContent = zombies.filter(z => !z.stunned).length;
+        }
+
+        function gameOver() {
+            running = false;
+            document.getElementById('deathLevel').textContent = level;
+            document.getElementById('gameOver').style.display = 'flex';
+            document.exitPointerLock();
+        }
+
+        // ========== 游戏主循环 ==========
+        let lastTime = 0;
+        
         function animate(time = 0) {
             requestAnimationFrame(animate);
             
-            const dt = 0.016; // 固定时间步长
+            const dt = Math.min((time - lastTime) / 1000, 0.1);
+            lastTime = time;
 
             if (!running) {
                 renderer.render(scene, camera);
@@ -458,14 +813,13 @@
                 keys['Space'] = false;
             }
 
-            // 移动方向（相对于玩家朝向）
+            // 移动
             const speed = CONFIG.MOVE_SPEED;
             const angle = player.rotY;
             
             const vx = (Math.sin(angle) * moveZ + Math.cos(angle) * moveX) * speed;
             const vz = (Math.cos(angle) * moveZ - Math.sin(angle) * moveX) * speed;
 
-            // 尝试移动（分轴检测）
             const newX = player.pos.x + vx * dt;
             const newZ = player.pos.z + vz * dt;
 
@@ -488,17 +842,36 @@
                 player.grounded = true;
             }
 
-            // 更新相机
+            // 陷阱伤害
+            if (checkTrapDamage()) {
+                playerHit();
+            }
+
+            // 更新僵尸
+            for (const zombie of zombies) {
+                if (zombie.update(dt)) {
+                    playerHit();
+                }
+            }
+            updateLives();
+
+            // 相机
             camera.position.copy(player.pos);
             camera.rotation.set(0, 0, 0);
             camera.rotateY(player.rotY);
             camera.rotateX(player.rotX);
 
-            // 更新玩家灯光
+            // 玩家灯光
             const pl = scene.getObjectByName('playerLight');
             if (pl) {
                 pl.position.copy(player.pos);
                 pl.position.y += 2;
+            }
+
+            // 出口动画
+            const exit = scene.getObjectByName('exit');
+            if (exit) {
+                exit.rotation.y += 0.02;
             }
 
             // 检查胜利
@@ -513,37 +886,30 @@
                 }
             }
 
-            // 更新UI
-            document.getElementById('level').textContent = level;
             updateMinimap();
-
             renderer.render(scene, camera);
         }
 
-        // 加载关卡
+        // ========== 关卡管理 ==========
         function loadLevel() {
             maze = generateMaze(CONFIG.MAZE_SIZE);
             createMaze();
 
-            // 重置玩家位置
             const cs = CONFIG.CELL_SIZE;
             player.pos.set(2 * cs + cs / 2, CONFIG.PLAYER_HEIGHT, 2 * cs + cs / 2);
             player.vel.set(0, 0, 0);
             player.rotY = 0;
             player.rotX = 0;
             player.grounded = true;
+            player.lastDamageTime = 0;
 
             document.getElementById('level').textContent = level;
             updateLives();
         }
 
-        function updateLives() {
-            document.getElementById('lives').textContent = '❤️'.repeat(player.lives);
-        }
-
-        // 开始游戏
         function startGame() {
             document.getElementById('startScreen').style.display = 'none';
+            document.getElementById('gameOver').style.display = 'none';
             document.getElementById('winScreen').style.display = 'none';
             
             level = 1;
