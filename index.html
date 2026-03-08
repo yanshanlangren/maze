@@ -487,7 +487,8 @@
             const sensitivity = 0.002;
             player.rotation.y -= event.movementX * sensitivity;
             player.rotation.x -= event.movementY * sensitivity;
-            player.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.rotation.x));
+            // 限制上下视角角度为 45度，模拟人正常视角
+            player.rotation.x = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, player.rotation.x));
         }
         
         // ============ 迷宫生成 ============
@@ -549,14 +550,15 @@
             
             // 地板材质
             const floorMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x2a2a4a,
+                color: 0x2d3a4d,
                 roughness: 0.8 
             });
             
-            // 墙壁材质
+            // 墙壁材质 - 鲜艳的青蓝色
             const wallMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x4a4a6a,
-                roughness: 0.6 
+                color: 0x1e90ff,
+                roughness: 0.4,
+                metalness: 0.1
             });
             
             // 创建地板
@@ -933,6 +935,7 @@
         
         // ============ 游戏主循环 ============
         let lastTime = 0;
+        let walkTime = 0; // 用于头部晃动
         
         function gameLoop(currentTime) {
             requestAnimationFrame(gameLoop);
@@ -953,7 +956,9 @@
             if (keys['KeyA'] || keys['ArrowLeft']) moveX = -1;
             if (keys['KeyD'] || keys['ArrowRight']) moveX = 1;
             
-            if (moveX !== 0 || moveZ !== 0) {
+            const isMoving = moveX !== 0 || moveZ !== 0;
+            
+            if (isMoving) {
                 const angle = player.rotation.y;
                 const speed = CONFIG.MOVE_SPEED * deltaTime;
                 
@@ -970,10 +975,22 @@
                 if (!checkWallCollision(player.position.x, newZ)) {
                     player.position.z = newZ;
                 }
+                
+                // 更新走路时间（用于头部晃动）
+                walkTime += deltaTime * 10;
             }
             
-            // 更新相机
+            // 更新相机 - 模拟人行走时的头部晃动
             camera.position.copy(player.position);
+            
+            // 头部晃动效果：上下和左右
+            if (isMoving) {
+                const bobAmount = 0.08; // 晃动幅度
+                const bobSpeed = walkTime;
+                camera.position.y += Math.sin(bobSpeed) * bobAmount;
+                camera.position.x += Math.cos(bobSpeed * 0.5) * bobAmount * 0.3;
+            }
+            
             camera.rotation.y = player.rotation.y;
             camera.rotation.x = player.rotation.x;
             
