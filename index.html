@@ -224,6 +224,112 @@
         let traps = [];
         let zombies = [];
         let exitX = 0, exitZ = 0;
+        let sword = null;  // 剑模型
+        let swordSwinging = false;  // 挥剑状态
+        let swordSwingTime = 0;     // 挥剑动画时间
+
+        // ========== 创建剑模型 ==========
+        function createSword() {
+            const swordGroup = new THREE.Group();
+            
+            // 剑身 - 使用扁平的长方体
+            const bladeLength = 0.8;
+            const bladeWidth = 0.06;
+            const bladeThickness = 0.02;
+            const bladeGeo = new THREE.BoxGeometry(bladeThickness, bladeLength, bladeWidth);
+            const bladeMat = new THREE.MeshStandardMaterial({ 
+                color: 0xcccccc, 
+                metalness: 0.9, 
+                roughness: 0.2 
+            });
+            const blade = new THREE.Mesh(bladeGeo, bladeMat);
+            blade.position.set(0, bladeLength / 2, 0);
+            swordGroup.add(blade);
+            
+            // 剑尖 - 三角形
+            const tipGeo = new THREE.ConeGeometry(bladeWidth * 0.8, 0.15, 4);
+            const tip = new THREE.Mesh(tipGeo, bladeMat);
+            tip.position.set(0, bladeLength + 0.075, 0);
+            tip.rotation.z = 0;
+            swordGroup.add(tip);
+            
+            // 护手
+            const guardGeo = new THREE.BoxGeometry(0.2, 0.05, 0.08);
+            const guardMat = new THREE.MeshStandardMaterial({ 
+                color: 0x8b4513, 
+                metalness: 0.3, 
+                roughness: 0.7 
+            });
+            const guard = new THREE.Mesh(guardGeo, guardMat);
+            guard.position.set(0, -0.02, 0);
+            swordGroup.add(guard);
+            
+            // 剑柄
+            const handleGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.15, 8);
+            const handleMat = new THREE.MeshStandardMaterial({ 
+                color: 0x4a3728, 
+                roughness: 0.9 
+            });
+            const handle = new THREE.Mesh(handleGeo, handleMat);
+            handle.position.set(0, -0.1, 0);
+            swordGroup.add(handle);
+            
+            // 剑柄底端装饰
+            const pommelGeo = new THREE.SphereGeometry(0.03, 8, 8);
+            const pommelMat = new THREE.MeshStandardMaterial({ 
+                color: 0xffd700, 
+                metalness: 0.8, 
+                roughness: 0.3 
+            });
+            const pommel = new THREE.Mesh(pommelGeo, pommelMat);
+            pommel.position.set(0, -0.18, 0);
+            swordGroup.add(pommel);
+            
+            // 初始位置 - 屏幕右下方
+            swordGroup.position.set(0.35, -0.3, -0.5);
+            swordGroup.rotation.set(-0.3, 0.2, -0.5);  // 倾斜角度
+            
+            return swordGroup;
+        }
+
+        // ========== 挥剑动画 ==========
+        function swingSword() {
+            if (swordSwinging) return;
+            swordSwinging = true;
+            swordSwingTime = 0;
+        }
+
+        function updateSwordAnimation(dt) {
+            if (!sword) return;
+            
+            const swingDuration = 0.25;  // 挥剑动画持续时间
+            
+            if (swordSwinging) {
+                swordSwingTime += dt;
+                const progress = swordSwingTime / swingDuration;
+                
+                if (progress < 1) {
+                    // 挥剑动作 - 剑从右下划向左上
+                    const swingAngle = Math.sin(progress * Math.PI) * 1.5;
+                    sword.rotation.x = -0.3 + swingAngle;
+                    sword.rotation.z = -0.5 - swingAngle * 0.5;
+                    sword.position.y = -0.3 + swingAngle * 0.2;
+                    sword.position.x = 0.35 - swingAngle * 0.15;
+                } else {
+                    // 恢复原位
+                    swordSwinging = false;
+                    sword.rotation.set(-0.3, 0.2, -0.5);
+                    sword.position.set(0.35, -0.3, -0.5);
+                }
+            }
+            
+            // 待机时轻微晃动
+            if (!swordSwinging) {
+                const idleTime = Date.now() / 1000;
+                sword.position.y = -0.3 + Math.sin(idleTime * 2) * 0.01;
+                sword.rotation.z = -0.5 + Math.sin(idleTime * 1.5) * 0.02;
+            }
+        }
 
         // ========== 初始化 ==========
         function init() {
@@ -272,6 +378,11 @@
             document.getElementById('startBtn').onclick = startGame;
             document.getElementById('restartBtn').onclick = startGame;
             document.getElementById('replayBtn').onclick = startGame;
+
+            // 创建剑并添加到相机
+            sword = createSword();
+            camera.add(sword);
+            scene.add(camera);
 
             animate();
         }
@@ -687,6 +798,9 @@
             void crosshair.offsetWidth;
             crosshair.classList.add('attacking');
             attackEffect.classList.add('active');
+            
+            // 触发剑挥动动画
+            swingSword();
 
             if (attackAnimTimer) {
                 clearTimeout(attackAnimTimer);
@@ -958,6 +1072,7 @@
             }
 
             updateMinimap();
+            updateSwordAnimation(dt);  // 更新剑动画
             renderer.render(scene, camera);
         }
 
