@@ -51,6 +51,36 @@
         }
         .crosshair::before { width: 2px; height: 20px; left: 9px; }
         .crosshair::after { width: 20px; height: 2px; top: 9px; }
+        .crosshair.attacking {
+            animation: crosshairKick 0.22s ease-out;
+        }
+
+        #attackEffect {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 235, 180, 0.85);
+            box-shadow: 0 0 18px rgba(255, 180, 100, 0.55);
+            transform: translate(-50%, -50%) scale(0.5);
+            opacity: 0;
+            pointer-events: none;
+        }
+        #attackEffect.active {
+            animation: attackFlash 0.22s ease-out;
+        }
+
+        @keyframes crosshairKick {
+            0% { transform: translate(-50%, -50%) scale(1); }
+            30% { transform: translate(-50%, -50%) scale(1.35); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+        @keyframes attackFlash {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0.85; }
+            100% { transform: translate(-50%, -50%) scale(2.3); opacity: 0; }
+        }
         
         .hint {
             position: absolute;
@@ -128,6 +158,7 @@
         </div>
         
         <div class="crosshair"></div>
+        <div id="attackEffect"></div>
         <div class="warning" id="warning"></div>
         
         <div class="hint">
@@ -165,9 +196,16 @@
         const WALL_HEIGHT = 4;    // 墙高
         const PLAYER_HEIGHT = 1.6;
         const PLAYER_RADIUS = 0.35;
-        const MOVE_SPEED = 5;
+        const MOVE_SPEED = 20;
+        const MOVE_ACCEL = 24;
+        const GROUND_DRAG = 10;
+        const AIR_ACCEL_FACTOR = 1;
+        const AIR_DRAG = 10;
+        const ATTACK_COOLDOWN_MS = 650;
+        const ATTACK_ANIM_MS = 220;
         const JUMP_FORCE = 8;
         const GRAVITY = 20;
+        const TRAP_SIZE = CELL_SIZE * 0.45;
 
         // ========== 全局变量 ==========
         let scene, camera, renderer, minimapCtx;
@@ -467,11 +505,18 @@
                             color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 0.4, transparent: true, opacity: 0.8
                         });
                         const pos = gridToWorld(gx, gz);
-                        const trapMesh = new THREE.Mesh(new THREE.BoxGeometry(CELL_SIZE * 0.8, 0.15, CELL_SIZE * 0.8), trapMat);
+                        const trapMesh = new THREE.Mesh(new THREE.BoxGeometry(TRAP_SIZE, 0.15, TRAP_SIZE), trapMat);
                         trapMesh.position.set(pos.x, 0.1, pos.z);
                         scene.add(trapMesh);
                         
-                        traps.push({ gx, gz, mesh: trapMesh });
+                        traps.push({
+                            gx,
+                            gz,
+                            x: pos.x,
+                            z: pos.z,
+                            halfSize: TRAP_SIZE / 2,
+                            mesh: trapMesh
+                        });
                         placed++;
                     }
                 }
@@ -484,9 +529,17 @@
             const now = Date.now();
             if (now - player.lastDamageTime < 1000) return false;
 
-            const { gx, gz } = worldToGrid(player.x, player.z);
             for (const trap of traps) {
-                if (trap.gx === gx && trap.gz === gz) {
+                const minX = trap.x - trap.halfSize;
+                const maxX = trap.x + trap.halfSize;
+                const minZ = trap.z - trap.halfSize;
+                const maxZ = trap.z + trap.halfSize;
+                const closestX = Math.max(minX, Math.min(player.x, maxX));
+                const closestZ = Math.max(minZ, Math.min(player.z, maxZ));
+                const dx = player.x - closestX;
+                const dz = player.z - closestZ;
+
+                if (dx * dx + dz * dz <= PLAYER_RADIUS * PLAYER_RADIUS) {
                     player.lastDamageTime = now;
                     return true;
                 }
@@ -624,6 +677,27 @@
             }
         }
 
+        function playAttackAnimation() {
+            const crosshair = document.querySelector('.crosshair');
+            const attackEffect = document.getElementById('attackEffect');
+            if (!crosshair || !attackEffect) return;
+
+            crosshair.classList.remove('attacking');
+            attackEffect.classList.remove('active');
+            void crosshair.offsetWidth;
+            crosshair.classList.add('attacking');
+            attackEffect.classList.add('active');
+
+            if (attackAnimTimer) {
+                clearTimeout(attackAnimTimer);
+            }
+            attackAnimTimer = setTimeout(() => {
+                crosshair.classList.remove('attacking');
+                attackEffect.classList.remove('active');
+                attackAnimTimer = 0;
+            }, ATTACK_ANIM_MS);
+        }
+
         // ========== 小地图 ==========
         function updateMinimap() {
             const ctx = minimapCtx;
@@ -660,7 +734,9 @@
                 const dx = trap.gx - px;
                 const dz = trap.gz - pz;
                 if (Math.abs(dx) <= range && Math.abs(dz) <= range) {
-                    ctx.fillRect((dx + range) * cellPx + 2, (dz + range) * cellPx + 2, cellPx - 4, cellPx - 4);
+                    const trapPx = Math.max(2, cellPx * (TRAP_SIZE / CELL_SIZE));
+                    const offset = (cellPx - trapPx) / 2;
+                    ctx.fillRect((dx + range) * cellPx + offset, (dz + range) * cellPx + offset, trapPx, trapPx);
                 }
             }
             
@@ -686,9 +762,41 @@
             }
             
             // 玩家
+            const playerCx = canvas.width / 2;
+            const playerCy = canvas.height / 2;
+            const playerRadiusPx = cellPx / 2;
             ctx.fillStyle = '#00ff00';
             ctx.beginPath();
-            ctx.arc(canvas.width / 2, canvas.height / 2, cellPx / 2, 0, Math.PI * 2);
+            ctx.arc(playerCx, playerCy, playerRadiusPx, 0, Math.PI * 2);
+            ctx.fill();
+
+            const forwardX = -Math.sin(player.rotY);
+            const forwardZ = -Math.cos(player.rotY);
+            const arrowLen = cellPx * 1.2;
+            const tipX = playerCx + forwardX * arrowLen;
+            const tipY = playerCy + forwardZ * arrowLen;
+
+            ctx.strokeStyle = '#ccffcc';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(playerCx, playerCy);
+            ctx.lineTo(tipX, tipY);
+            ctx.stroke();
+
+            const headSize = Math.max(3, cellPx * 0.35);
+            const angle = Math.atan2(forwardZ, forwardX);
+            ctx.fillStyle = '#ccffcc';
+            ctx.beginPath();
+            ctx.moveTo(tipX, tipY);
+            ctx.lineTo(
+                tipX - Math.cos(angle - Math.PI / 6) * headSize,
+                tipY - Math.sin(angle - Math.PI / 6) * headSize
+            );
+            ctx.lineTo(
+                tipX - Math.cos(angle + Math.PI / 6) * headSize,
+                tipY - Math.sin(angle + Math.PI / 6) * headSize
+            );
+            ctx.closePath();
             ctx.fill();
         }
 
@@ -724,7 +832,8 @@
 
         // ========== 游戏主循环 ==========
         let lastTime = 0;
-        let canAttack = true;
+        let lastAttackTime = -Infinity;
+        let attackAnimTimer = 0;
         
         function animate(time = 0) {
             requestAnimationFrame(animate);
@@ -758,14 +867,46 @@
 
             // 移动
             const angle = player.rotY;
-            const vx = (Math.sin(angle) * moveZ + Math.cos(angle) * moveX) * MOVE_SPEED;
-            const vz = (Math.cos(angle) * moveZ - Math.sin(angle) * moveX) * MOVE_SPEED;
+            let dirX = Math.sin(angle) * moveZ + Math.cos(angle) * moveX;
+            let dirZ = Math.cos(angle) * moveZ - Math.sin(angle) * moveX;
+            const dirLen = Math.hypot(dirX, dirZ);
+            if (dirLen > 0) {
+                dirX /= dirLen;
+                dirZ /= dirLen;
+            }
 
-            const newX = player.x + vx * dt;
-            const newZ = player.z + vz * dt;
+            const accel = player.grounded ? MOVE_ACCEL : MOVE_ACCEL * AIR_ACCEL_FACTOR;
+            player.vx += dirX * accel * dt;
+            player.vz += dirZ * accel * dt;
 
-            if (canMoveTo(newX, player.z)) player.x = newX;
-            if (canMoveTo(player.x, newZ)) player.z = newZ;
+            const drag = player.grounded ? GROUND_DRAG : AIR_DRAG;
+            const damping = Math.max(0, 1 - drag * dt);
+            player.vx *= damping;
+            player.vz *= damping;
+
+            const speed = Math.hypot(player.vx, player.vz);
+            if (speed > MOVE_SPEED) {
+                const scale = MOVE_SPEED / speed;
+                player.vx *= scale;
+                player.vz *= scale;
+            } else if (speed < 0.01) {
+                player.vx = 0;
+                player.vz = 0;
+            }
+
+            const newX = player.x + player.vx * dt;
+            const newZ = player.z + player.vz * dt;
+
+            if (canMoveTo(newX, player.z)) {
+                player.x = newX;
+            } else {
+                player.vx = 0;
+            }
+            if (canMoveTo(player.x, newZ)) {
+                player.z = newZ;
+            } else {
+                player.vz = 0;
+            }
 
             // 重力
             if (!player.grounded) {
@@ -835,6 +976,15 @@
             player.rotX = 0;
             player.grounded = true;
             player.lastDamageTime = 0;
+            lastAttackTime = -Infinity;
+            if (attackAnimTimer) {
+                clearTimeout(attackAnimTimer);
+                attackAnimTimer = 0;
+            }
+            const crosshair = document.querySelector('.crosshair');
+            const attackEffect = document.getElementById('attackEffect');
+            if (crosshair) crosshair.classList.remove('attacking');
+            if (attackEffect) attackEffect.classList.remove('active');
 
             document.getElementById('level').textContent = level;
             updateLivesUI();
@@ -865,10 +1015,12 @@
 
         // 点击攻击
         document.addEventListener('mousedown', (e) => {
-            if (e.button === 0 && running && canAttack) {
-                canAttack = false;
+            if (e.button === 0 && running) {
+                const now = performance.now();
+                if (now - lastAttackTime < ATTACK_COOLDOWN_MS) return;
+                lastAttackTime = now;
                 attackZombie();
-                setTimeout(() => canAttack = true, 500);
+                playAttackAnimation();
             }
         });
 
