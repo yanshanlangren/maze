@@ -203,6 +203,10 @@
         const AIR_DRAG = 8;
         const ATTACK_COOLDOWN_MS = 650;
         const ATTACK_ANIM_MS = 220;
+        const SWORD_WINDUP_TIME = 0.09;
+        const SWORD_STRIKE_TIME = 0.08;
+        const SWORD_RECOVER_TIME = 0.18;
+        const SWORD_TOTAL_TIME = SWORD_WINDUP_TIME + SWORD_STRIKE_TIME + SWORD_RECOVER_TIME;
         const JUMP_FORCE = 10;    // 提高跳跃力度
         const GRAVITY = 25;       // 提高重力
         const TRAP_SIZE = CELL_SIZE * 0.45;
@@ -294,6 +298,51 @@
         }
 
         // ========== 更新剑位置（跟随相机） ==========
+        function getSwordSwingPose() {
+            if (!swordSwinging) {
+                return { px: 0, py: 0, pz: 0, rx: 0, ry: 0, rz: 0 };
+            }
+
+            const t = swordSwingTime;
+            const smooth = v => v * v * (3 - 2 * v);
+
+            if (t < SWORD_WINDUP_TIME) {
+                const p = smooth(Math.min(t / SWORD_WINDUP_TIME, 1));
+                return {
+                    px: 0.09 * p,
+                    py: 0.05 * p,
+                    pz: -0.08 * p,
+                    rx: 0.55 * p,
+                    ry: 0.28 * p,
+                    rz: -0.45 * p
+                };
+            }
+
+            if (t < SWORD_WINDUP_TIME + SWORD_STRIKE_TIME) {
+                const phaseT = (t - SWORD_WINDUP_TIME) / SWORD_STRIKE_TIME;
+                const p = 1 - Math.pow(1 - Math.min(phaseT, 1), 3);
+                return {
+                    px: 0.09 - 0.35 * p,
+                    py: 0.05 - 0.12 * p,
+                    pz: -0.08 + 0.30 * p,
+                    rx: 0.55 - 1.60 * p,
+                    ry: 0.28 - 0.98 * p,
+                    rz: -0.45 + 2.15 * p
+                };
+            }
+
+            const recoverT = (t - SWORD_WINDUP_TIME - SWORD_STRIKE_TIME) / SWORD_RECOVER_TIME;
+            const p = 1 - smooth(Math.min(recoverT, 1));
+            return {
+                px: -0.26 * p,
+                py: -0.07 * p,
+                pz: 0.22 * p,
+                rx: -1.05 * p,
+                ry: -0.70 * p,
+                rz: 1.70 * p
+            };
+        }
+
         function updateSwordPosition() {
             if (!sword) return;
             
@@ -320,19 +369,18 @@
             const baseRot = sword.userData.baseRot;
             const swordPos = new THREE.Vector3();
             const idleBob = Math.sin(performance.now() * 0.004) * 0.012;
-            const swingProgress = swordSwinging ? Math.min(swordSwingTime / 0.25, 1) : 0;
-            const swingCurve = Math.sin(swingProgress * Math.PI);
+            const swing = getSwordSwingPose();
             swordPos.copy(camera.position);
-            swordPos.add(forward.clone().multiplyScalar(Math.abs(basePos.z) + swingCurve * 0.2));
-            swordPos.add(right.clone().multiplyScalar(basePos.x - swingCurve * 0.22));
-            swordPos.add(up.clone().multiplyScalar(basePos.y + idleBob - swingCurve * 0.05));
+            swordPos.add(forward.clone().multiplyScalar(Math.abs(basePos.z) + swing.pz));
+            swordPos.add(right.clone().multiplyScalar(basePos.x + swing.px));
+            swordPos.add(up.clone().multiplyScalar(basePos.y + idleBob + swing.py));
             sword.position.copy(swordPos);
             
             // 剑的旋转跟随相机
             sword.quaternion.copy(camera.quaternion);
-            sword.rotateX(baseRot.x - swingCurve * 1.05);
-            sword.rotateY(baseRot.y - swingCurve * 0.72);
-            sword.rotateZ(baseRot.z + swingCurve * 1.7);
+            sword.rotateX(baseRot.x + swing.rx);
+            sword.rotateY(baseRot.y + swing.ry);
+            sword.rotateZ(baseRot.z + swing.rz);
         }
 
         // ========== 挥剑动画 ==========
@@ -346,7 +394,7 @@
             if (!sword) return;
             if (swordSwinging) {
                 swordSwingTime += dt;
-                if (swordSwingTime >= 0.25) {
+                if (swordSwingTime >= SWORD_TOTAL_TIME) {
                     swordSwinging = false;
                     swordSwingTime = 0;
                 }
@@ -875,7 +923,9 @@
 
                 if (dist < attackRange) {
                     const angleToZombie = Math.atan2(dx, dz);
-                    let angleDiff = angleToZombie - player.rotY;
+                    // player.rotY=0 鏃剁浉鏈烘湞鍚?-Z锛屾墍浠ラ渶瑕佸姞 PI 瀵归綈鏀诲嚮鏈濆悜
+                    const facingAngle = player.rotY + Math.PI;
+                    let angleDiff = angleToZombie - facingAngle;
                     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
                     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
