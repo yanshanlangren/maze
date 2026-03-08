@@ -241,7 +241,7 @@
         // ============ 游戏配置 ============
         const CONFIG = {
             CELL_SIZE: 4,
-            WALL_HEIGHT: 3,
+            WALL_HEIGHT: 4,
             PLAYER_HEIGHT: 1.6,
             PLAYER_RADIUS: 0.3,
             MOVE_SPEED: 8,
@@ -249,7 +249,7 @@
             FRICTION: 8,
             JUMP_FORCE: 8,
             GRAVITY: 20,
-            MAZE_SIZE: 128,
+            MAZE_SIZE: 32,  // 减小地图到32x32
             VIEW_RANGE: 8,
             METEORITE_DAMAGE_RADIUS: 2,
             METEORITE_FALL_SPEED: 20,
@@ -306,6 +306,7 @@
         // ============ 初始化 ============
         function initThreeJS() {
             scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e);
             
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.y = CONFIG.PLAYER_HEIGHT;
@@ -316,13 +317,19 @@
             
             minimapCtx = document.getElementById('minimap').getContext('2d');
             
-            // 光照
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            // 增强光照
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
             scene.add(ambientLight);
             
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(50, 100, 50);
             scene.add(directionalLight);
+            
+            // 添加玩家头顶灯
+            const playerLight = new THREE.PointLight(0xffffff, 0.8, 20);
+            playerLight.position.set(0, 5, 0);
+            scene.add(playerLight);
+            window.playerLight = playerLight;
             
             // 事件监听
             window.addEventListener('resize', onWindowResize);
@@ -383,86 +390,66 @@
             }
         }
         
-        // ============ 迷宫生成（使用递归分割算法，更适合大地图）============
+        // ============ 迷宫生成（深度优先搜索）============
         function generateMaze(size) {
-            // 初始化全为通道
+            // 初始化全为墙
             const maze = [];
             for (let y = 0; y < size; y++) {
                 maze[y] = [];
                 for (let x = 0; x < size; x++) {
+                    maze[y][x] = 1;
+                }
+            }
+            
+            // 深度优先搜索生成迷宫
+            const stack = [[1, 1]];
+            maze[1][1] = 0;
+            
+            const directions = [[0, 2], [2, 0], [0, -2], [-2, 0]];
+            
+            while (stack.length > 0) {
+                const [cx, cy] = stack[stack.length - 1];
+                const neighbors = [];
+                
+                for (const [dx, dy] of directions) {
+                    const nx = cx + dx;
+                    const ny = cy + dy;
+                    
+                    if (nx > 0 && nx < size - 1 && ny > 0 && ny < size - 1 && maze[ny][nx] === 1) {
+                        neighbors.push([nx, ny, dx / 2, dy / 2]);
+                    }
+                }
+                
+                if (neighbors.length > 0) {
+                    const [nx, ny, dx, dy] = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    maze[cy + dy][cx + dx] = 0;
+                    maze[ny][nx] = 0;
+                    stack.push([nx, ny]);
+                } else {
+                    stack.pop();
+                }
+            }
+            
+            // 增加一些额外通道让迷宫不那么复杂
+            for (let i = 0; i < size * 2; i++) {
+                const x = Math.floor(Math.random() * (size - 2)) + 1;
+                const y = Math.floor(Math.random() * (size - 2)) + 1;
+                maze[y][x] = 0;
+            }
+            
+            // 确保入口区域畅通（3x3范围）
+            for (let y = 1; y <= 3; y++) {
+                for (let x = 1; x <= 3; x++) {
                     maze[y][x] = 0;
                 }
             }
             
-            // 设置边界墙
-            for (let i = 0; i < size; i++) {
-                maze[0][i] = 1;
-                maze[size-1][i] = 1;
-                maze[i][0] = 1;
-                maze[i][size-1] = 1;
-            }
-            
-            // 递归分割
-            function divide(x, y, width, height, orientation) {
-                if (width < 3 || height < 3) return;
-                
-                const horizontal = orientation === 'horizontal';
-                
-                // 选择墙的位置（偶数位置）
-                let wx = x + (horizontal ? 0 : Math.floor(Math.random() * ((width - 1) / 2)) * 2 + 1);
-                let wy = y + (horizontal ? Math.floor(Math.random() * ((height - 1) / 2)) * 2 + 1 : 0);
-                
-                // 选择通道位置（奇数位置）
-                const px = wx + (horizontal ? Math.floor(Math.random() * (width / 2)) * 2 : 0);
-                const py = wy + (horizontal ? 0 : Math.floor(Math.random() * (height / 2)) * 2);
-                
-                // 画墙
-                const dx = horizontal ? 1 : 0;
-                const dy = horizontal ? 0 : 1;
-                const length = horizontal ? width : height;
-                
-                for (let i = 0; i < length; i++) {
-                    const cx = wx + dx * i;
-                    const cy = wy + dy * i;
-                    if (cx !== px || cy !== py) {
-                        if (cx >= 0 && cx < size && cy >= 0 && cy < size) {
-                            maze[cy][cx] = 1;
-                        }
-                    }
-                }
-                
-                // 递归分割
-                const nx = x, ny = y;
-                let w, h;
-                
-                if (horizontal) {
-                    w = width;
-                    h = wy - y;
-                    divide(nx, ny, w, h, chooseOrientation(w, h));
-                    divide(nx, wy + 1, w, y + height - wy - 1, chooseOrientation(w, h));
-                } else {
-                    w = wx - x;
-                    h = height;
-                    divide(nx, ny, w, h, chooseOrientation(w, h));
-                    divide(wx + 1, ny, x + width - wx - 1, h, chooseOrientation(w, h));
+            // 确保出口区域畅通（3x3范围）
+            for (let y = size - 4; y <= size - 2; y++) {
+                for (let x = size - 4; x <= size - 2; x++) {
+                    maze[y][x] = 0;
                 }
             }
-            
-            function chooseOrientation(width, height) {
-                if (width < height) return 'horizontal';
-                if (height < width) return 'vertical';
-                return Math.random() < 0.5 ? 'horizontal' : 'vertical';
-            }
-            
-            divide(1, 1, size - 2, size - 2, chooseOrientation(size - 2, size - 2));
-            
-            // 确保入口和出口
-            maze[1][1] = 0;
-            maze[1][2] = 0;
-            maze[2][1] = 0;
-            maze[size-2][size-2] = 0;
-            maze[size-3][size-2] = 0;
-            maze[size-2][size-3] = 0;
             
             return maze;
         }
@@ -528,9 +515,9 @@
             const wallHeight = CONFIG.WALL_HEIGHT;
             const theme = THEMES[currentLevel - 1];
             
-            // 更新场景雾效
-            scene.fog = new THREE.Fog(theme.fog, 5, 40);
-            scene.background = new THREE.Color(theme.fog);
+            // 更新场景（移除雾效）
+            scene.fog = null;
+            scene.background = new THREE.Color(0x1a1a2e);
             
             // 地板材质
             const floorMaterial = new THREE.MeshStandardMaterial({ 
@@ -542,9 +529,9 @@
                 color: theme.wall, roughness: 0.5, metalness: 0.1
             });
             
-            // 天花板材质
+            // 天花板材质（半透明，让光线透过）
             const ceilingMaterial = new THREE.MeshStandardMaterial({ 
-                color: theme.ceiling, roughness: 0.9, side: THREE.BackSide
+                color: theme.ceiling, roughness: 0.9, transparent: true, opacity: 0.3, side: THREE.DoubleSide
             });
             
             // 创建地板
@@ -555,21 +542,52 @@
             floor.receiveShadow = true;
             mazeGroup.add(floor);
             
-            // 创建天花板（遮挡视线）
-            const ceilingHeight = wallHeight + cellSize;
-            const ceilingGeometry = new THREE.PlaneGeometry(size * cellSize, size * cellSize);
-            const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
-            ceiling.rotation.x = Math.PI / 2;
-            ceiling.position.set(size * cellSize / 2, ceilingHeight, size * cellSize / 2);
-            mazeGroup.add(ceiling);
+            // 天花板高度
+            const ceilingHeight = wallHeight;
             
-            // 创建墙壁（使用合并几何体优化性能）
+            // 四周边界墙壁（封闭）- 延伸到天花板高度
+            const boundaryMaterial = new THREE.MeshStandardMaterial({ 
+                color: theme.wall, roughness: 0.5 
+            });
+            
+            // 北墙
+            const northWall = new THREE.Mesh(
+                new THREE.BoxGeometry(size * cellSize, ceilingHeight, cellSize),
+                boundaryMaterial
+            );
+            northWall.position.set(size * cellSize / 2 - cellSize / 2, ceilingHeight / 2, -cellSize / 2);
+            mazeGroup.add(northWall);
+            
+            // 南墙
+            const southWall = new THREE.Mesh(
+                new THREE.BoxGeometry(size * cellSize, ceilingHeight, cellSize),
+                boundaryMaterial
+            );
+            southWall.position.set(size * cellSize / 2 - cellSize / 2, ceilingHeight / 2, size * cellSize - cellSize / 2);
+            mazeGroup.add(southWall);
+            
+            // 西墙
+            const westWall = new THREE.Mesh(
+                new THREE.BoxGeometry(cellSize, ceilingHeight, size * cellSize),
+                boundaryMaterial
+            );
+            westWall.position.set(-cellSize / 2, ceilingHeight / 2, size * cellSize / 2 - cellSize / 2);
+            mazeGroup.add(westWall);
+            
+            // 东墙
+            const eastWall = new THREE.Mesh(
+                new THREE.BoxGeometry(cellSize, ceilingHeight, size * cellSize),
+                boundaryMaterial
+            );
+            eastWall.position.set(size * cellSize - cellSize / 2, ceilingHeight / 2, size * cellSize / 2 - cellSize / 2);
+            mazeGroup.add(eastWall);
+            
+            // 创建墙壁（内部墙壁）
             const wallGeometry = new THREE.BoxGeometry(cellSize, ceilingHeight, cellSize);
             
-            // 只渲染部分墙壁（性能优化）
-            const step = 1;
-            for (let y = 0; y < size; y += step) {
-                for (let x = 0; x < size; x += step) {
+            // 渲染墙壁
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
                     if (mazeData[y][x] === 1) {
                         const wall = new THREE.Mesh(wallGeometry, wallMaterial);
                         wall.position.set(x * cellSize, ceilingHeight / 2, y * cellSize);
@@ -578,17 +596,27 @@
                 }
             }
             
+            // 入口区域灯光
+            const entranceLight = new THREE.PointLight(0x00ff00, 3, 30);
+            entranceLight.position.set(2 * cellSize, 2, 2 * cellSize);
+            mazeGroup.add(entranceLight);
+            
             // 入口标记
-            const entranceGeometry = new THREE.BoxGeometry(cellSize * 0.8, 0.1, cellSize * 0.8);
+            const entranceGeometry = new THREE.BoxGeometry(cellSize * 1.5, 0.1, cellSize * 1.5);
             const entranceMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x00ff00, emissive: 0x00ff00, emissiveIntensity: 0.5 
+                color: 0x00ff00, emissive: 0x00ff00, emissiveIntensity: 0.8 
             });
             const entrance = new THREE.Mesh(entranceGeometry, entranceMaterial);
-            entrance.position.set(1 * cellSize, 0.1, 1 * cellSize);
+            entrance.position.set(2 * cellSize, 0.1, 2 * cellSize);
             mazeGroup.add(entrance);
             
+            // 出口区域灯光
+            const exitLight = new THREE.PointLight(0xffd700, 5, 50);
+            exitLight.position.set((size - 2) * cellSize, 3, (size - 2) * cellSize);
+            mazeGroup.add(exitLight);
+            
             // 出口标记
-            const exitGeometry = new THREE.BoxGeometry(cellSize * 0.8, 0.1, cellSize * 0.8);
+            const exitGeometry = new THREE.BoxGeometry(cellSize * 1.5, 0.1, cellSize * 1.5);
             const exitMaterial = new THREE.MeshStandardMaterial({ 
                 color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.8 
             });
@@ -597,9 +625,9 @@
             mazeGroup.add(exitMarker);
             
             // 出口光柱
-            const beamGeometry = new THREE.CylinderGeometry(0.5, 0.5, ceilingHeight, 16);
+            const beamGeometry = new THREE.CylinderGeometry(1, 1, ceilingHeight, 16);
             const beamMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0xffd700, transparent: true, opacity: 0.2 
+                color: 0xffd700, transparent: true, opacity: 0.3 
             });
             const beam = new THREE.Mesh(beamGeometry, beamMaterial);
             beam.position.set((size - 2) * cellSize, ceilingHeight / 2, (size - 2) * cellSize);
@@ -1032,7 +1060,7 @@
             const exitZ = (CONFIG.MAZE_SIZE - 2) * CONFIG.CELL_SIZE;
             const dx = player.position.x - exitX;
             const dz = player.position.z - exitZ;
-            return Math.sqrt(dx * dx + dz * dz) < CONFIG.CELL_SIZE * 0.8;
+            return Math.sqrt(dx * dx + dz * dz) < CONFIG.CELL_SIZE * 1.5;
         }
         
         // ============ 关卡管理 ============
@@ -1053,13 +1081,13 @@
             maze = generateMaze(CONFIG.MAZE_SIZE);
             maze = ensurePathExists(maze);
             
-            const positions = createMaze3D(maze);
+            createMaze3D(maze);
             
-            // 重置玩家
+            // 重置玩家位置（在入口区域）
             player.position.set(
-                positions.entrance.x * CONFIG.CELL_SIZE,
+                2 * CONFIG.CELL_SIZE,
                 CONFIG.PLAYER_HEIGHT,
-                positions.entrance.z * CONFIG.CELL_SIZE
+                2 * CONFIG.CELL_SIZE
             );
             player.velocity.set(0, 0, 0);
             player.verticalVelocity = 0;
@@ -1208,6 +1236,12 @@
             camera.rotation.set(0, 0, 0);
             camera.rotateY(player.rotation.y);
             camera.rotateX(player.rotation.x);
+            
+            // 更新玩家头顶灯位置
+            if (window.playerLight) {
+                window.playerLight.position.copy(player.position);
+                window.playerLight.position.y += 3;
+            }
             
             // 生成陨石
             const meteorInterval = Math.max(3000 - currentLevel * 150, 1000);
