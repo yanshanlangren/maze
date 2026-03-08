@@ -695,45 +695,115 @@
                 this.stunned = false;
                 this.stunEndTime = 0;
                 this.attackCooldown = 0;
+                this.stunStars = null;  // 晕眩星星
 
                 const pos = gridToWorld(gx, gz);
                 
                 // 使用圆柱体代替胶囊体（r128不支持CapsuleGeometry）
                 const bodyGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.8, 8);
-                const bodyMat = new THREE.MeshStandardMaterial({ color: 0x9370db, emissive: 0x4a0080, emissiveIntensity: 0.3 });
-                this.mesh = new THREE.Mesh(bodyGeo, bodyMat);
+                this.bodyMat = new THREE.MeshStandardMaterial({ color: 0x9370db, emissive: 0x4a0080, emissiveIntensity: 0.3 });
+                this.mesh = new THREE.Mesh(bodyGeo, this.bodyMat);
                 this.mesh.position.set(pos.x, 1, pos.z);
                 scene.add(this.mesh);
 
                 // 头部
                 const headGeo = new THREE.SphereGeometry(0.3, 8, 8);
-                const head = new THREE.Mesh(headGeo, bodyMat);
-                head.position.set(0, 1.2, 0);
-                this.mesh.add(head);
+                this.head = new THREE.Mesh(headGeo, this.bodyMat);
+                this.head.position.set(0, 1.2, 0);
+                this.mesh.add(this.head);
 
                 // 眼睛
                 const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
                 const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-                const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-                leftEye.position.set(-0.12, 1.2, 0.25);
-                this.mesh.add(leftEye);
-                const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-                rightEye.position.set(0.12, 1.2, 0.25);
-                this.mesh.add(rightEye);
+                this.leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+                this.leftEye.position.set(-0.12, 1.2, 0.25);
+                this.mesh.add(this.leftEye);
+                this.rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+                this.rightEye.position.set(0.12, 1.2, 0.25);
+                this.mesh.add(this.rightEye);
+                
+                // 创建晕眩星星组
+                this.createStunStars();
+            }
+            
+            createStunStars() {
+                this.stunStars = new THREE.Group();
+                const starMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+                
+                // 创建3个星星围绕头部
+                for (let i = 0; i < 3; i++) {
+                    const starGroup = new THREE.Group();
+                    
+                    // 简单的星星形状 - 用多个交叉的平面
+                    const starGeo = new THREE.PlaneGeometry(0.15, 0.15);
+                    
+                    // 创建5个平面组成星星
+                    for (let j = 0; j < 2; j++) {
+                        const star = new THREE.Mesh(starGeo, starMat);
+                        star.rotation.z = j * Math.PI / 4;
+                        starGroup.add(star);
+                    }
+                    
+                    // 设置星星位置（围绕头顶）
+                    const angle = (i / 3) * Math.PI * 2;
+                    starGroup.position.set(
+                        Math.cos(angle) * 0.5,
+                        2.0,
+                        Math.sin(angle) * 0.5
+                    );
+                    starGroup.userData.baseAngle = angle;
+                    this.stunStars.add(starGroup);
+                }
+                
+                this.stunStars.visible = false;
+                this.mesh.add(this.stunStars);
             }
 
             update(dt) {
                 const now = Date.now();
                 if (this.stunned) {
+                    // 晕眩动画效果
+                    const stunProgress = (this.stunEndTime - now) / 5000;  // 5秒晕眩
+                    const stunTime = now / 1000;
+                    
+                    // 身体摇晃
+                    this.mesh.rotation.z = Math.sin(stunTime * 8) * 0.4;
+                    this.mesh.rotation.x = Math.sin(stunTime * 6) * 0.2;
+                    
+                    // 头部晃动
+                    this.head.rotation.x = Math.sin(stunTime * 10) * 0.3;
+                    this.head.rotation.z = Math.cos(stunTime * 8) * 0.3;
+                    
+                    // 眼睛变色（晕眩状态）
+                    this.leftEye.material.color.setHex(0xffff00);
+                    this.rightEye.material.color.setHex(0xffff00);
+                    
+                    // 旋转晕眩星星
+                    this.stunStars.rotation.y += dt * 3;
+                    this.stunStars.visible = true;
+                    
+                    // 身体闪烁效果
+                    const flash = Math.sin(stunTime * 15) > 0;
+                    this.bodyMat.emissiveIntensity = flash ? 0.8 : 0.4;
+                    
+                    // 检查晕眩是否结束
                     if (now > this.stunEndTime) {
                         this.stunned = false;
-                        this.mesh.material.emissive.setHex(0x4a0080);
+                        this.stunStars.visible = false;
+                        this.mesh.rotation.z = 0;
+                        this.mesh.rotation.x = 0;
+                        this.head.rotation.x = 0;
+                        this.head.rotation.z = 0;
+                        this.bodyMat.emissive.setHex(0x4a0080);
+                        this.bodyMat.emissiveIntensity = 0.3;
+                        this.leftEye.material.color.setHex(0xff0000);
+                        this.rightEye.material.color.setHex(0xff0000);
                     }
-                    this.mesh.rotation.z = Math.sin(now / 100) * 0.3;
                     return false;
                 }
 
                 this.mesh.rotation.z = 0;
+                this.mesh.rotation.x = 0;
                 if (this.attackCooldown > 0) this.attackCooldown -= dt;
 
                 const dx = player.x - this.mesh.position.x;
@@ -762,8 +832,9 @@
 
             stun() {
                 this.stunned = true;
-                this.stunEndTime = Date.now() + 3000;
-                this.mesh.material.emissive.setHex(0xffff00);
+                this.stunEndTime = Date.now() + 5000;  // 5秒晕眩
+                this.bodyMat.emissive.setHex(0xffff00);
+                this.bodyMat.emissiveIntensity = 0.6;
             }
 
             remove() {
