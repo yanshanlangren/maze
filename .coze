@@ -1,9 +1,9 @@
 [project]
 entrypoint = "index.html"
-requires = ["nodejs-24"]
+requires = ["python-3.11"]
 
 [dev]
-run = ["npx", "server", "-l", "5000"]
+run = ["python", "-m", "http.server", "5000"]
 
 [deploy]
-run = ["npx", "server", "-l", "5000"]
+run = ["python", "-m", "http.server", "5000"]
