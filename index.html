@@ -3,101 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D迷宫逃脱 - 躲避陨石与僵尸</title>
+    <title>3D迷宫逃脱</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { overflow: hidden; background: #000; font-family: 'Segoe UI', Arial, sans-serif; }
-        #gameContainer { position: relative; width: 100vw; height: 100vh; }
+        body { overflow: hidden; background: #000; font-family: Arial, sans-serif; }
         #gameCanvas { display: block; }
         
-        .ui-overlay {
+        #ui {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             pointer-events: none;
-            z-index: 100;
-        }
-        
-        .top-bar {
-            display: flex;
-            justify-content: space-between;
-            padding: 20px;
-            align-items: flex-start;
-        }
-        
-        .left-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
         }
         
         .stat-box {
-            background: rgba(0, 0, 0, 0.8);
-            padding: 12px 20px;
-            border-radius: 8px;
+            position: absolute;
+            top: 20px; left: 20px;
+            background: rgba(0,0,0,0.7);
             color: #fff;
+            padding: 10px 15px;
+            border-radius: 5px;
             font-size: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .stat-box.level { color: #ffd700; font-weight: bold; }
-        .stat-box.lives { color: #ff6b6b; }
-        .stat-box.zombies { color: #9370db; }
-        
-        /* 小地图 */
-        #minimapContainer {
-            background: rgba(0, 0, 0, 0.9);
-            border-radius: 8px;
-            padding: 10px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-        }
-        
-        #minimapTitle {
-            color: #aaa;
-            font-size: 12px;
-            margin-bottom: 5px;
-            text-align: center;
         }
         
         #minimap {
-            width: 160px;
-            height: 160px;
-            border: 1px solid #444;
+            position: absolute;
+            top: 80px; left: 20px;
+            background: rgba(0,0,0,0.8);
+            border: 2px solid #444;
         }
         
         .crosshair {
             position: absolute;
-            top: 50%;
-            left: 50%;
+            top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            width: 20px;
-            height: 20px;
-            pointer-events: none;
+            width: 20px; height: 20px;
         }
-        
         .crosshair::before, .crosshair::after {
             content: '';
             position: absolute;
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255,255,255,0.7);
         }
+        .crosshair::before { width: 2px; height: 20px; left: 9px; }
+        .crosshair::after { width: 20px; height: 2px; top: 9px; }
         
-        .crosshair::before { width: 2px; height: 20px; left: 9px; top: 0; }
-        .crosshair::after { width: 20px; height: 2px; left: 0; top: 9px; }
-        
-        .hint-box {
+        .hint {
             position: absolute;
-            bottom: 20px;
-            left: 50%;
+            bottom: 20px; left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            padding: 12px 25px;
-            border-radius: 8px;
+            background: rgba(0,0,0,0.7);
             color: #aaa;
+            padding: 10px 20px;
+            border-radius: 5px;
             font-size: 14px;
         }
         
-        #startScreen, #gameOverScreen, #victoryScreen, #levelTransition {
+        #startScreen, #winScreen {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
@@ -105,1228 +66,495 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            z-index: 200;
+            background: rgba(0,0,0,0.9);
+            z-index: 100;
         }
         
-        #startScreen { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
-        #gameOverScreen { background: rgba(0, 0, 0, 0.9); display: none; }
-        #victoryScreen { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); display: none; }
-        #levelTransition { background: rgba(0, 0, 0, 0.9); display: none; }
+        #winScreen { display: none; }
         
-        #startScreen h1 { font-size: 3.5rem; color: #ffd700; text-shadow: 0 0 30px rgba(255, 215, 0, 0.5); margin-bottom: 15px; }
-        #startScreen .subtitle { font-size: 1.3rem; color: #ff6b6b; margin-bottom: 40px; }
+        h1 { color: #ffd700; font-size: 3rem; margin-bottom: 20px; }
+        p { color: #aaa; margin-bottom: 30px; }
         
-        .start-btn {
-            background: linear-gradient(45deg, #ffd700, #ffaa00);
+        button {
+            background: #ffd700;
             color: #000;
-            border: none;
-            padding: 18px 50px;
-            font-size: 1.3rem;
-            font-weight: bold;
-            border-radius: 50px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .start-btn:hover { transform: scale(1.1); box-shadow: 0 0 40px rgba(255, 215, 0, 0.6); }
-        
-        .instructions { margin-top: 30px; color: #888; text-align: center; line-height: 1.8; }
-        .instructions span { display: inline-block; background: rgba(255, 255, 255, 0.1); padding: 4px 12px; border-radius: 4px; margin: 0 3px; }
-        
-        #levelTransition h2 { font-size: 3rem; color: #4ade80; margin-bottom: 20px; }
-        #levelTransition p { font-size: 1.3rem; color: #fff; }
-        
-        #gameOverScreen h2 { font-size: 3.5rem; color: #ff6b6b; margin-bottom: 30px; }
-        #gameOverScreen p { font-size: 1.2rem; color: #aaa; margin-bottom: 30px; }
-        
-        .restart-btn {
-            background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
-            color: #fff;
             border: none;
             padding: 15px 40px;
-            font-size: 1.1rem;
+            font-size: 1.2rem;
             border-radius: 30px;
             cursor: pointer;
+            pointer-events: auto;
         }
-        
-        #victoryScreen h2 { font-size: 3.5rem; color: #ffd700; text-shadow: 0 0 50px rgba(255, 215, 0, 0.8); margin-bottom: 30px; }
-        
-        .warning {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            pointer-events: none;
-            background: radial-gradient(ellipse at center, transparent 50%, rgba(255, 0, 0, 0.4) 100%);
-            opacity: 0;
-            transition: opacity 0.1s;
-            z-index: 150;
-        }
-        .warning.active { opacity: 1; }
-        
-        /* 攻击提示 */
-        .attack-hint {
-            position: absolute;
-            bottom: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 200, 0, 0.8);
-            color: #000;
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-weight: bold;
-            opacity: 0;
-            transition: opacity 0.3s;
-            pointer-events: none;
-        }
-        .attack-hint.show { opacity: 1; }
+        button:hover { background: #ffaa00; }
     </style>
 </head>
 <body>
-    <div id="gameContainer">
-        <canvas id="gameCanvas"></canvas>
-        
-        <div class="ui-overlay">
-            <div class="top-bar">
-                <div class="left-panel">
-                    <div class="stat-box level">关卡: <span id="levelNum">1</span> / 16 - <span id="themeName">丛林</span></div>
-                    <div class="stat-box lives">生命: <span id="lives">❤️❤️❤️</span></div>
-                    <div class="stat-box zombies">僵尸: <span id="zombieCount">0</span></div>
-                    <div id="minimapContainer">
-                        <div id="minimapTitle">小地图 (16x16)</div>
-                        <canvas id="minimap" width="160" height="160"></canvas>
-                    </div>
-                </div>
-            </div>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui">
+        <div class="stat-box">
+            <span style="color:#ffd700">关卡: <span id="level">1</span></span> | 
+            <span style="color:#ff6b6b">生命: <span id="lives">❤️❤️❤️</span></span>
         </div>
-        
+        <canvas id="minimap" width="160" height="160"></canvas>
         <div class="crosshair"></div>
-        <div class="warning" id="warning"></div>
-        <div class="attack-hint" id="attackHint">🖱️ 左键攻击僵尸!</div>
-        
-        <div class="hint-box">
-            <span>WASD</span> 移动 | <span>空格</span> 跳跃 | <span>鼠标</span> 转向 | <span>左键</span> 攻击僵尸
-        </div>
-        
-        <div id="startScreen">
-            <h1>🌌 3D迷宫逃脱 🌌</h1>
-            <p class="subtitle">探索迷宫，躲避陨石与僵尸，找到出口！</p>
-            <button class="start-btn" id="startBtn">开始游戏</button>
-            <div class="instructions">
-                <p><span>WASD</span> 移动 | <span>空格</span> 跳跃 | <span>鼠标</span> 转向 | <span>左键</span> 攻击</p>
-                <p><span style="color:#00ff00">绿色</span> 起点 | <span style="color:#ffd700">金色</span> 终点 | <span style="color:#ff0000">红色</span> 陷阱 | <span style="color:#9370db">紫色</span> 僵尸</p>
-                <p>地图: <span>128x128</span> | 探索迷雾，找到出路！</p>
-            </div>
-        </div>
-        
-        <div id="levelTransition">
-            <h2>✨ 关卡完成！✨</h2>
-            <p>进入下一关: <span id="nextTheme">草原</span></p>
-        </div>
-        
-        <div id="gameOverScreen">
-            <h2>💀 游戏结束 💀</h2>
-            <p>你在第 <span id="deathLevel">1</span> 关倒下了...</p>
-            <button class="restart-btn" id="restartBtn">重新开始</button>
-        </div>
-        
-        <div id="victoryScreen">
-            <h2>🏆 恭喜通关！🏆</h2>
-            <p style="color: #ffd700; font-size: 1.3rem;">你成功通过了所有16关！</p>
-            <button class="start-btn" id="playAgainBtn" style="margin-top: 30px;">再玩一次</button>
-        </div>
+        <div class="hint">WASD移动 | 空格跳跃 | 鼠标转向 | 到达金色出口过关</div>
     </div>
     
+    <div id="startScreen">
+        <h1>🎮 3D迷宫逃脱</h1>
+        <p>探索迷宫，找到金色出口！</p>
+        <button id="startBtn">开始游戏</button>
+    </div>
+    
+    <div id="winScreen">
+        <h1>🏆 恭喜通关！</h1>
+        <p>你成功逃出了迷宫！</p>
+        <button id="replayBtn">再玩一次</button>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        // ============ 游戏配置 ============
+        // 配置
         const CONFIG = {
+            MAZE_SIZE: 32,
             CELL_SIZE: 4,
             WALL_HEIGHT: 4,
             PLAYER_HEIGHT: 1.6,
-            PLAYER_RADIUS: 0.3,
-            MOVE_SPEED: 8,
-            ACCELERATION: 20,
-            FRICTION: 8,
+            PLAYER_RADIUS: 0.4,
+            MOVE_SPEED: 6,
             JUMP_FORCE: 8,
             GRAVITY: 20,
-            MAZE_SIZE: 32,  // 减小地图到32x32
-            VIEW_RANGE: 8,
-            METEORITE_DAMAGE_RADIUS: 2,
-            METEORITE_FALL_SPEED: 20,
-            WARNING_TIME: 1200,
         };
-        
-        // ============ 16个主题风格 ============
-        const THEMES = [
-            { name: '丛林', wall: 0x228b22, floor: 0x2d4a2d, trap: 0x8b0000, ceiling: 0x1a3a1a, fog: 0x1a3a1a, ambient: 0x33aa33 },
-            { name: '草原', wall: 0x9acd32, floor: 0x7cba4c, trap: 0xff4500, ceiling: 0x6b8e23, fog: 0x7cba4c, ambient: 0x99dd55 },
-            { name: '沙漠', wall: 0xdaa520, floor: 0xf4a460, trap: 0x8b4513, ceiling: 0xcd853f, fog: 0xf4a460, ambient: 0xffdd88 },
-            { name: '雪山', wall: 0xb0c4de, floor: 0xe0ffff, trap: 0x4169e1, ceiling: 0xadd8e6, fog: 0xe0ffff, ambient: 0xaaccff },
-            { name: '火山', wall: 0x8b0000, floor: 0x2f1810, trap: 0xff0000, ceiling: 0x1a0808, fog: 0x2f1810, ambient: 0xff4444 },
-            { name: '海洋', wall: 0x006994, floor: 0x1e4d6b, trap: 0xff6347, ceiling: 0x0a2a3a, fog: 0x1e4d6b, ambient: 0x4488aa },
-            { name: '地狱', wall: 0x8b0000, floor: 0x1a0000, trap: 0xff0000, ceiling: 0x0a0000, fog: 0x1a0000, ambient: 0xff2222 },
-            { name: '山洞', wall: 0x4a4a4a, floor: 0x2a2a2a, trap: 0x800080, ceiling: 0x1a1a1a, fog: 0x2a2a2a, ambient: 0x666666 },
-            { name: '天堂', wall: 0xffd700, floor: 0xfffacd, trap: 0xff69b4, ceiling: 0xfff8dc, fog: 0xfffacd, ambient: 0xffffcc },
-            { name: '宇宙', wall: 0x191970, floor: 0x0a0a20, trap: 0x00ffff, ceiling: 0x050510, fog: 0x0a0a20, ambient: 0x4444aa },
-            { name: '冰霜', wall: 0x87ceeb, floor: 0xe6f3ff, trap: 0x0000ff, ceiling: 0xb0e0e6, fog: 0xe6f3ff, ambient: 0x99ddff },
-            { name: '森林', wall: 0x006400, floor: 0x228b22, trap: 0xff1493, ceiling: 0x004400, fog: 0x228b22, ambient: 0x44aa44 },
-            { name: '遗迹', wall: 0x8b7355, floor: 0x6b5344, trap: 0xd2691e, ceiling: 0x4a3728, fog: 0x6b5344, ambient: 0xaa8866 },
-            { name: '深渊', wall: 0x0a0a0a, floor: 0x050505, trap: 0x8a2be2, ceiling: 0x000000, fog: 0x050505, ambient: 0x333333 },
-            { name: '天空', wall: 0x87cefa, floor: 0xe0f0ff, trap: 0xffa500, ceiling: 0xffffff, fog: 0xe0f0ff, ambient: 0xccddff },
-            { name: '末日', wall: 0x2f2f2f, floor: 0x1a1a1a, trap: 0x00ff00, ceiling: 0x0f0f0f, fog: 0x1a1a1a, ambient: 0x555555 },
-        ];
-        
-        // ============ 游戏状态 ============
+
+        // 全局变量
         let scene, camera, renderer, minimapCtx;
-        let player = {
-            position: new THREE.Vector3(),
-            velocity: new THREE.Vector3(),
-            verticalVelocity: 0,
-            rotation: { x: 0, y: 0 },
-            lives: 3,
-            isGrounded: true,
-        };
-        let currentLevel = 1;
         let maze = [];
-        let explored = new Set();
-        let mazeGroup;
-        let meteorites = [];
-        let traps = [];
-        let zombies = [];
-        let exitMarker;
-        let gameRunning = false;
-        let gamePaused = false;
+        let player = {
+            pos: new THREE.Vector3(),
+            vel: new THREE.Vector3(),
+            rotY: 0,
+            rotX: 0,
+            grounded: true,
+            lives: 3
+        };
         let keys = {};
-        let lastMeteorTime = 0;
-        let lastTime = 0;
-        let walkTime = 0;
-        let canAttack = true;
-        let attackCooldown = 500;
-        
-        // ============ 初始化 ============
-        function initThreeJS() {
+        let level = 1;
+        let running = false;
+
+        // 初始化Three.js
+        function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a2e);
-            
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.y = CONFIG.PLAYER_HEIGHT;
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
             
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gameCanvas'), antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.shadowMap.enabled = true;
             
             minimapCtx = document.getElementById('minimap').getContext('2d');
+
+            // 光照
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
             
-            // 增强光照
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(50, 100, 50);
+            scene.add(dirLight);
+
+            // 事件
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
             
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(50, 100, 50);
-            scene.add(directionalLight);
-            
-            // 添加玩家头顶灯
-            const playerLight = new THREE.PointLight(0xffffff, 0.8, 20);
-            playerLight.position.set(0, 5, 0);
-            scene.add(playerLight);
-            window.playerLight = playerLight;
-            
-            // 事件监听
-            window.addEventListener('resize', onWindowResize);
-            document.addEventListener('keydown', (e) => keys[e.code] = true);
-            document.addEventListener('keyup', (e) => keys[e.code] = false);
+            document.addEventListener('keydown', e => keys[e.code] = true);
+            document.addEventListener('keyup', e => keys[e.code] = false);
             document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('click', onMouseClick);
+            document.addEventListener('click', () => {
+                if (running) document.body.requestPointerLock();
+            });
+
+            document.getElementById('startBtn').onclick = startGame;
+            document.getElementById('replayBtn').onclick = startGame;
+
+            animate();
         }
-        
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+
+        function onMouseMove(e) {
+            if (document.pointerLockElement !== document.body || !running) return;
+            player.rotY -= e.movementX * 0.002;
+            player.rotX -= e.movementY * 0.002;
+            player.rotX = Math.max(-Math.PI/4, Math.min(Math.PI/4, player.rotX));
         }
-        
-        function onMouseMove(event) {
-            if (document.pointerLockElement !== document.body || !gameRunning || gamePaused) return;
-            const sensitivity = 0.002;
-            player.rotation.y -= event.movementX * sensitivity;
-            player.rotation.x -= event.movementY * sensitivity;
-            player.rotation.x = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, player.rotation.x));
-        }
-        
-        function onMouseClick() {
-            if (gameRunning && !gamePaused) {
-                document.body.requestPointerLock();
-                if (canAttack) attackZombie();
-            }
-        }
-        
-        function attackZombie() {
-            canAttack = false;
-            setTimeout(() => canAttack = true, attackCooldown);
-            
-            // 检测前方僵尸
-            const attackRange = 3;
-            const attackAngle = Math.PI / 3; // 60度攻击范围
-            
-            for (const zombie of zombies) {
-                if (zombie.stunned) continue;
-                
-                const dx = zombie.mesh.position.x - player.position.x;
-                const dz = zombie.mesh.position.z - player.position.z;
-                const dist = Math.sqrt(dx * dx + dz * dz);
-                
-                if (dist < attackRange) {
-                    // 检查是否在攻击角度内
-                    const angleToZombie = Math.atan2(dx, dz);
-                    let angleDiff = angleToZombie - player.rotation.y;
-                    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-                    
-                    if (Math.abs(angleDiff) < attackAngle) {
-                        zombie.stun();
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // ============ 迷宫生成（深度优先搜索）============
+
+        // 迷宫生成 (DFS)
         function generateMaze(size) {
             // 初始化全为墙
-            const maze = [];
-            for (let y = 0; y < size; y++) {
-                maze[y] = [];
-                for (let x = 0; x < size; x++) {
-                    maze[y][x] = 1;
-                }
-            }
+            const m = Array(size).fill(null).map(() => Array(size).fill(1));
             
-            // 深度优先搜索生成迷宫
+            // DFS挖通道
             const stack = [[1, 1]];
-            maze[1][1] = 0;
-            
-            const directions = [[0, 2], [2, 0], [0, -2], [-2, 0]];
+            m[1][1] = 0;
             
             while (stack.length > 0) {
                 const [cx, cy] = stack[stack.length - 1];
+                const dirs = [[0,2],[2,0],[0,-2],[-2,0]];
                 const neighbors = [];
                 
-                for (const [dx, dy] of directions) {
-                    const nx = cx + dx;
-                    const ny = cy + dy;
-                    
-                    if (nx > 0 && nx < size - 1 && ny > 0 && ny < size - 1 && maze[ny][nx] === 1) {
-                        neighbors.push([nx, ny, dx / 2, dy / 2]);
+                for (const [dx, dy] of dirs) {
+                    const nx = cx + dx, ny = cy + dy;
+                    if (nx > 0 && nx < size-1 && ny > 0 && ny < size-1 && m[ny][nx] === 1) {
+                        neighbors.push([nx, ny, dx/2, dy/2]);
                     }
                 }
                 
                 if (neighbors.length > 0) {
                     const [nx, ny, dx, dy] = neighbors[Math.floor(Math.random() * neighbors.length)];
-                    maze[cy + dy][cx + dx] = 0;
-                    maze[ny][nx] = 0;
+                    m[cy + dy][cx + dx] = 0;
+                    m[ny][nx] = 0;
                     stack.push([nx, ny]);
                 } else {
                     stack.pop();
                 }
             }
-            
-            // 增加一些额外通道让迷宫不那么复杂
-            for (let i = 0; i < size * 2; i++) {
-                const x = Math.floor(Math.random() * (size - 2)) + 1;
-                const y = Math.floor(Math.random() * (size - 2)) + 1;
-                maze[y][x] = 0;
-            }
-            
-            // 确保入口区域畅通（3x3范围）
+
+            // 确保入口出口区域畅通
             for (let y = 1; y <= 3; y++) {
                 for (let x = 1; x <= 3; x++) {
-                    maze[y][x] = 0;
+                    m[y][x] = 0;
                 }
             }
-            
-            // 确保出口区域畅通（3x3范围）
-            for (let y = size - 4; y <= size - 2; y++) {
-                for (let x = size - 4; x <= size - 2; x++) {
-                    maze[y][x] = 0;
+            for (let y = size-4; y <= size-2; y++) {
+                for (let x = size-4; x <= size-2; x++) {
+                    m[y][x] = 0;
                 }
             }
-            
-            return maze;
+
+            return m;
         }
-        
-        // ============ 验证路径可达性 ============
-        function verifyPath(maze, start, end) {
-            const size = maze.length;
-            const visited = new Set();
-            const queue = [start];
-            visited.add(`${start.x},${start.y}`);
-            
-            const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
-            
-            while (queue.length > 0) {
-                const current = queue.shift();
-                
-                if (current.x === end.x && current.y === end.y) {
-                    return true;
-                }
-                
-                for (const [dx, dy] of directions) {
-                    const nx = current.x + dx;
-                    const ny = current.y + dy;
-                    const key = `${nx},${ny}`;
-                    
-                    if (nx >= 0 && nx < size && ny >= 0 && ny < size &&
-                        maze[ny][nx] === 0 && !visited.has(key)) {
-                        visited.add(key);
-                        queue.push({ x: nx, y: ny });
-                    }
-                }
+
+        // 创建3D迷宫
+        function createMaze() {
+            // 清除旧场景
+            while (scene.children.length > 2) {
+                scene.remove(scene.children[scene.children.length - 1]);
             }
-            
-            return false;
-        }
-        
-        function ensurePathExists(maze) {
-            const size = maze.length;
-            const start = { x: 1, y: 1 };
-            const end = { x: size - 2, y: size - 2 };
-            
-            if (verifyPath(maze, start, end)) return maze;
-            
-            // 如果不可达，打通一条路径
-            let x = 1, y = 1;
-            while (x !== end.x || y !== end.y) {
-                maze[y][x] = 0;
-                if (x < end.x) x++;
-                else if (y < end.y) y++;
-            }
-            maze[end.y][end.x] = 0;
-            
-            return maze;
-        }
-        
-        // ============ 创建3D迷宫（优化：只渲染玩家视野范围内的墙）============
-        function createMaze3D(mazeData) {
-            if (mazeGroup) scene.remove(mazeGroup);
-            
-            mazeGroup = new THREE.Group();
-            const size = mazeData.length;
-            const cellSize = CONFIG.CELL_SIZE;
-            const wallHeight = CONFIG.WALL_HEIGHT;
-            const theme = THEMES[currentLevel - 1];
-            
-            // 更新场景（移除雾效）
-            scene.fog = null;
-            scene.background = new THREE.Color(0x1a1a2e);
-            
-            // 地板材质
-            const floorMaterial = new THREE.MeshStandardMaterial({ 
-                color: theme.floor, roughness: 0.8 
-            });
-            
-            // 墙壁材质
-            const wallMaterial = new THREE.MeshStandardMaterial({ 
-                color: theme.wall, roughness: 0.5, metalness: 0.1
-            });
-            
-            // 天花板材质（半透明，让光线透过）
-            const ceilingMaterial = new THREE.MeshStandardMaterial({ 
-                color: theme.ceiling, roughness: 0.9, transparent: true, opacity: 0.3, side: THREE.DoubleSide
-            });
-            
-            // 创建地板
-            const floorGeometry = new THREE.PlaneGeometry(size * cellSize, size * cellSize);
-            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+
+            const size = CONFIG.MAZE_SIZE;
+            const cs = CONFIG.CELL_SIZE;
+            const wh = CONFIG.WALL_HEIGHT;
+
+            // 地板
+            const floorGeo = new THREE.PlaneGeometry(size * cs, size * cs);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a3a4a });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
             floor.rotation.x = -Math.PI / 2;
-            floor.position.set(size * cellSize / 2, 0, size * cellSize / 2);
-            floor.receiveShadow = true;
-            mazeGroup.add(floor);
-            
-            // 天花板高度
-            const ceilingHeight = wallHeight;
-            
-            // 四周边界墙壁（封闭）- 延伸到天花板高度
-            const boundaryMaterial = new THREE.MeshStandardMaterial({ 
-                color: theme.wall, roughness: 0.5 
+            floor.position.set(size * cs / 2, 0, size * cs / 2);
+            scene.add(floor);
+
+            // 天花板
+            const ceilMat = new THREE.MeshStandardMaterial({ 
+                color: 0x2a2a3a, 
+                transparent: true, 
+                opacity: 0.5,
+                side: THREE.DoubleSide 
             });
+            const ceiling = new THREE.Mesh(floorGeo, ceilMat);
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.set(size * cs / 2, wh, size * cs / 2);
+            scene.add(ceiling);
+
+            // 墙壁材质
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x5a5a6a });
+            const wallGeo = new THREE.BoxGeometry(cs, wh, cs);
+
+            // 边界墙
+            const boundaryMat = new THREE.MeshStandardMaterial({ color: 0x4a4a5a });
             
-            // 北墙
-            const northWall = new THREE.Mesh(
-                new THREE.BoxGeometry(size * cellSize, ceilingHeight, cellSize),
-                boundaryMaterial
-            );
-            northWall.position.set(size * cellSize / 2 - cellSize / 2, ceilingHeight / 2, -cellSize / 2);
-            mazeGroup.add(northWall);
+            // 外围四墙（完全封闭）
+            const northWall = new THREE.Mesh(new THREE.BoxGeometry(size * cs, wh, cs), boundaryMat);
+            northWall.position.set(size * cs / 2, wh / 2, -cs / 2);
+            scene.add(northWall);
             
-            // 南墙
-            const southWall = new THREE.Mesh(
-                new THREE.BoxGeometry(size * cellSize, ceilingHeight, cellSize),
-                boundaryMaterial
-            );
-            southWall.position.set(size * cellSize / 2 - cellSize / 2, ceilingHeight / 2, size * cellSize - cellSize / 2);
-            mazeGroup.add(southWall);
+            const southWall = new THREE.Mesh(new THREE.BoxGeometry(size * cs, wh, cs), boundaryMat);
+            southWall.position.set(size * cs / 2, wh / 2, size * cs - cs / 2);
+            scene.add(southWall);
             
-            // 西墙
-            const westWall = new THREE.Mesh(
-                new THREE.BoxGeometry(cellSize, ceilingHeight, size * cellSize),
-                boundaryMaterial
-            );
-            westWall.position.set(-cellSize / 2, ceilingHeight / 2, size * cellSize / 2 - cellSize / 2);
-            mazeGroup.add(westWall);
+            const westWall = new THREE.Mesh(new THREE.BoxGeometry(cs, wh, size * cs), boundaryMat);
+            westWall.position.set(-cs / 2, wh / 2, size * cs / 2);
+            scene.add(westWall);
             
-            // 东墙
-            const eastWall = new THREE.Mesh(
-                new THREE.BoxGeometry(cellSize, ceilingHeight, size * cellSize),
-                boundaryMaterial
-            );
-            eastWall.position.set(size * cellSize - cellSize / 2, ceilingHeight / 2, size * cellSize / 2 - cellSize / 2);
-            mazeGroup.add(eastWall);
-            
-            // 创建墙壁（内部墙壁）
-            const wallGeometry = new THREE.BoxGeometry(cellSize, ceilingHeight, cellSize);
-            
-            // 渲染墙壁
+            const eastWall = new THREE.Mesh(new THREE.BoxGeometry(cs, wh, size * cs), boundaryMat);
+            eastWall.position.set(size * cs - cs / 2, wh / 2, size * cs / 2);
+            scene.add(eastWall);
+
+            // 内部墙壁
             for (let y = 0; y < size; y++) {
                 for (let x = 0; x < size; x++) {
-                    if (mazeData[y][x] === 1) {
-                        const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-                        wall.position.set(x * cellSize, ceilingHeight / 2, y * cellSize);
-                        mazeGroup.add(wall);
+                    if (maze[y][x] === 1) {
+                        const wall = new THREE.Mesh(wallGeo, wallMat);
+                        wall.position.set(x * cs + cs/2, wh / 2, y * cs + cs/2);
+                        scene.add(wall);
                     }
                 }
             }
-            
-            // 入口区域灯光
-            const entranceLight = new THREE.PointLight(0x00ff00, 3, 30);
-            entranceLight.position.set(2 * cellSize, 2, 2 * cellSize);
-            mazeGroup.add(entranceLight);
-            
-            // 入口标记
-            const entranceGeometry = new THREE.BoxGeometry(cellSize * 1.5, 0.1, cellSize * 1.5);
-            const entranceMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x00ff00, emissive: 0x00ff00, emissiveIntensity: 0.8 
+
+            // 入口标记（绿色）
+            const entranceMat = new THREE.MeshStandardMaterial({ 
+                color: 0x00ff00, 
+                emissive: 0x00ff00, 
+                emissiveIntensity: 0.5 
             });
-            const entrance = new THREE.Mesh(entranceGeometry, entranceMaterial);
-            entrance.position.set(2 * cellSize, 0.1, 2 * cellSize);
-            mazeGroup.add(entrance);
-            
-            // 出口区域灯光
-            const exitLight = new THREE.PointLight(0xffd700, 5, 50);
-            exitLight.position.set((size - 2) * cellSize, 3, (size - 2) * cellSize);
-            mazeGroup.add(exitLight);
-            
-            // 出口标记
-            const exitGeometry = new THREE.BoxGeometry(cellSize * 1.5, 0.1, cellSize * 1.5);
-            const exitMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.8 
+            const entrance = new THREE.Mesh(new THREE.BoxGeometry(cs, 0.1, cs), entranceMat);
+            entrance.position.set(2 * cs + cs/2, 0.1, 2 * cs + cs/2);
+            scene.add(entrance);
+
+            // 入口灯光
+            const entranceLight = new THREE.PointLight(0x00ff00, 2, 20);
+            entranceLight.position.set(2 * cs + cs/2, 2, 2 * cs + cs/2);
+            scene.add(entranceLight);
+
+            // 出口标记（金色）
+            const exitMat = new THREE.MeshStandardMaterial({ 
+                color: 0xffd700, 
+                emissive: 0xffd700, 
+                emissiveIntensity: 0.8 
             });
-            exitMarker = new THREE.Mesh(exitGeometry, exitMaterial);
-            exitMarker.position.set((size - 2) * cellSize, 0.1, (size - 2) * cellSize);
-            mazeGroup.add(exitMarker);
-            
+            const exitMarker = new THREE.Mesh(new THREE.BoxGeometry(cs, 0.1, cs), exitMat);
+            exitMarker.position.set((size - 2) * cs + cs/2, 0.1, (size - 2) * cs + cs/2);
+            exitMarker.name = 'exit';
+            scene.add(exitMarker);
+
+            // 出口灯光
+            const exitLight = new THREE.PointLight(0xffd700, 3, 30);
+            exitLight.position.set((size - 2) * cs + cs/2, 2, (size - 2) * cs + cs/2);
+            scene.add(exitLight);
+
             // 出口光柱
-            const beamGeometry = new THREE.CylinderGeometry(1, 1, ceilingHeight, 16);
-            const beamMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0xffd700, transparent: true, opacity: 0.3 
-            });
-            const beam = new THREE.Mesh(beamGeometry, beamMaterial);
-            beam.position.set((size - 2) * cellSize, ceilingHeight / 2, (size - 2) * cellSize);
-            mazeGroup.add(beam);
-            
-            // 生成陷阱
-            generateTraps(mazeData, cellSize, size, theme);
-            
-            // 生成僵尸
-            generateZombies(mazeData, cellSize, size);
-            
-            scene.add(mazeGroup);
-            
-            return { entrance: { x: 1, z: 1 }, exit: { x: size - 2, z: size - 2 } };
+            const beamGeo = new THREE.CylinderGeometry(1, 1, wh, 16);
+            const beamMat = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.2 });
+            const beam = new THREE.Mesh(beamGeo, beamMat);
+            beam.position.set((size - 2) * cs + cs/2, wh / 2, (size - 2) * cs + cs/2);
+            scene.add(beam);
+
+            // 玩家头顶灯
+            const playerLight = new THREE.PointLight(0xffffff, 0.8, 15);
+            playerLight.name = 'playerLight';
+            scene.add(playerLight);
         }
-        
-        // ============ 陷阱系统 ============
-        function generateTraps(mazeData, cellSize, size, theme) {
-            traps.forEach(t => scene.remove(t.mesh));
-            traps = [];
-            
-            const trapCount = Math.min(20 + currentLevel * 5, 100);
-            let placed = 0;
-            let attempts = 0;
-            
-            while (placed < trapCount && attempts < 500) {
-                const x = Math.floor(Math.random() * (size - 4)) + 2;
-                const z = Math.floor(Math.random() * (size - 4)) + 2;
-                
-                if (mazeData[z][x] === 0 && !(x <= 3 && z <= 3) && !(x >= size - 4 && z >= size - 4)) {
-                    const hasTrap = traps.some(t => Math.abs(t.x - x) + Math.abs(t.z - z) <= 1);
-                    if (!hasTrap) {
-                        const trap = createTrap(x, z, cellSize, theme);
-                        traps.push(trap);
-                        placed++;
-                    }
-                }
-                attempts++;
-            }
-        }
-        
-        function createTrap(x, z, cellSize, theme) {
-            const trapSize = cellSize * 0.5;
-            const geometry = new THREE.BoxGeometry(trapSize, 0.15, trapSize);
-            const material = new THREE.MeshStandardMaterial({ 
-                color: theme.trap, emissive: theme.trap, emissiveIntensity: 0.4,
-                transparent: true, opacity: 0.8
-            });
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.position.set(x * cellSize, 0.08, z * cellSize);
-            scene.add(mesh);
-            
-            return { x, z, mesh, cellSize };
-        }
-        
-        function checkTrapCollision() {
-            if (!player.isGrounded) return false;
-            for (const trap of traps) {
-                const px = player.position.x / CONFIG.CELL_SIZE;
-                const pz = player.position.z / CONFIG.CELL_SIZE;
-                const dist = Math.sqrt((px - trap.x) ** 2 + (pz - trap.z) ** 2);
-                if (dist < 0.3) return true;
-            }
-            return false;
-        }
-        
-        // ============ 僵尸系统 ============
-        class Zombie {
-            constructor(x, z, cellSize) {
-                this.x = x;
-                this.z = z;
-                this.cellSize = cellSize;
-                this.speed = 2 + currentLevel * 0.3;
-                this.stunned = false;
-                this.stunTime = 0;
-                this.attackCooldown = 0;
-                
-                // 创建僵尸模型
-                const bodyGeometry = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
-                const bodyMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0x9370db, emissive: 0x4a0080, emissiveIntensity: 0.3
-                });
-                this.mesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
-                this.mesh.position.set(x * cellSize, 1, z * cellSize);
-                this.mesh.castShadow = true;
-                
-                // 眼睛
-                const eyeGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-                const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-                const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-                leftEye.position.set(-0.15, 0.3, 0.35);
-                this.mesh.add(leftEye);
-                const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-                rightEye.position.set(0.15, 0.3, 0.35);
-                this.mesh.add(rightEye);
-                
-                scene.add(this.mesh);
-            }
-            
-            update(deltaTime) {
-                // 眩晕状态
-                if (this.stunned) {
-                    this.stunTime -= deltaTime;
-                    if (this.stunTime <= 0) {
-                        this.stunned = false;
-                        this.mesh.material.emissive.setHex(0x4a0080);
-                    }
-                    // 眩晕时摇晃
-                    this.mesh.rotation.z = Math.sin(Date.now() / 100) * 0.3;
-                    return false;
-                }
-                
-                this.mesh.rotation.z = 0;
-                
-                // 攻击冷却
-                if (this.attackCooldown > 0) {
-                    this.attackCooldown -= deltaTime;
-                }
-                
-                // 追踪玩家
-                const px = player.position.x;
-                const pz = player.position.z;
-                const dx = px - this.mesh.position.x;
-                const dz = pz - this.mesh.position.z;
-                const dist = Math.sqrt(dx * dx + dz * dz);
-                
-                if (dist < 1.5 && this.attackCooldown <= 0) {
-                    // 攻击玩家
-                    this.attackCooldown = 1;
-                    return true;
-                }
-                
-                if (dist > 1) {
-                    // 移动向玩家
-                    const moveX = (dx / dist) * this.speed * deltaTime;
-                    const moveZ = (dz / dist) * this.speed * deltaTime;
-                    
-                    const newX = this.mesh.position.x + moveX;
-                    const newZ = this.mesh.position.z + moveZ;
-                    
-                    // 简单碰撞检测
-                    const cellX = Math.floor(newX / this.cellSize + 0.5);
-                    const cellZ = Math.floor(newZ / this.cellSize + 0.5);
-                    
-                    if (cellX >= 0 && cellX < maze[0].length && cellZ >= 0 && cellZ < maze.length) {
-                        if (maze[cellZ][cellX] === 0) {
-                            this.mesh.position.x = newX;
-                            this.mesh.position.z = newZ;
-                        }
-                    }
-                    
-                    // 面向玩家
-                    this.mesh.rotation.y = Math.atan2(dx, dz);
-                }
-                
-                return false;
-            }
-            
-            stun() {
-                this.stunned = true;
-                this.stunTime = 3; // 眩晕3秒
-                this.mesh.material.emissive.setHex(0xffff00);
-            }
-            
-            remove() {
-                scene.remove(this.mesh);
-            }
-        }
-        
-        function generateZombies(mazeData, cellSize, size) {
-            zombies.forEach(z => z.remove());
-            zombies = [];
-            
-            const zombieCount = Math.min(2 + currentLevel, 10);
-            let placed = 0;
-            let attempts = 0;
-            
-            while (placed < zombieCount && attempts < 200) {
-                const x = Math.floor(Math.random() * (size - 4)) + 2;
-                const z = Math.floor(Math.random() * (size - 4)) + 2;
-                
-                if (mazeData[z][x] === 0 && !(x <= 5 && z <= 5) && !(x >= size - 5 && z >= size - 5)) {
-                    const hasZombie = zombies.some(zm => Math.abs(zm.x - x) + Math.abs(zm.z - z) < 5);
-                    if (!hasZombie) {
-                        const zombie = new Zombie(x, z, cellSize);
-                        zombies.push(zombie);
-                        placed++;
-                    }
-                }
-                attempts++;
-            }
-        }
-        
-        // ============ 陨石系统 ============
-        class Meteorite {
-            constructor(x, z, fallDelay) {
-                this.x = x;
-                this.z = z;
-                this.fallDelay = fallDelay;
-                this.y = 50;
-                this.falling = false;
-                this.hit = false;
-                
-                const geometry = new THREE.IcosahedronGeometry(1, 1);
-                const material = new THREE.MeshStandardMaterial({ 
-                    color: 0xff4400, emissive: 0xff2200, emissiveIntensity: 0.5
-                });
-                this.mesh = new THREE.Mesh(geometry, material);
-                this.mesh.position.set(x * CONFIG.CELL_SIZE, this.y, z * CONFIG.CELL_SIZE);
-                scene.add(this.mesh);
-                
-                // 警告标记
-                const warningGeometry = new THREE.RingGeometry(1.5, 2, 32);
-                const warningMaterial = new THREE.MeshBasicMaterial({ 
-                    color: 0xff0000, transparent: true, opacity: 0, side: THREE.DoubleSide
-                });
-                this.warningMarker = new THREE.Mesh(warningGeometry, warningMaterial);
-                this.warningMarker.rotation.x = -Math.PI / 2;
-                this.warningMarker.position.set(x * CONFIG.CELL_SIZE, 0.1, z * CONFIG.CELL_SIZE);
-                scene.add(this.warningMarker);
-            }
-            
-            update(deltaTime) {
-                if (this.hit) return false;
-                
-                this.fallDelay -= deltaTime * 1000;
-                if (this.fallDelay <= CONFIG.WARNING_TIME && !this.falling) {
-                    this.warningMarker.material.opacity = 0.5 + Math.sin(Date.now() / 100) * 0.3;
-                }
-                
-                if (this.fallDelay <= 0 && !this.falling) {
-                    this.falling = true;
-                    this.warningMarker.material.opacity = 0;
-                }
-                
-                if (this.falling) {
-                    this.y -= CONFIG.METEORITE_FALL_SPEED * deltaTime;
-                    this.mesh.position.y = this.y;
-                    this.mesh.rotation.x += 0.1;
-                    
-                    if (this.y <= CONFIG.PLAYER_HEIGHT) {
-                        this.hit = true;
-                        scene.remove(this.mesh);
-                        scene.remove(this.warningMarker);
-                        
-                        const dx = player.position.x - this.x * CONFIG.CELL_SIZE;
-                        const dz = player.position.z - this.z * CONFIG.CELL_SIZE;
-                        const dist = Math.sqrt(dx * dx + dz * dz);
-                        
-                        return dist < CONFIG.METEORITE_DAMAGE_RADIUS * CONFIG.CELL_SIZE;
-                    }
-                }
-                return false;
-            }
-            
-            remove() {
-                scene.remove(this.mesh);
-                scene.remove(this.warningMarker);
-            }
-        }
-        
-        function spawnMeteorite() {
+
+        // 碰撞检测
+        function isWall(x, z) {
             const size = CONFIG.MAZE_SIZE;
-            let attempts = 0;
+            const cs = CONFIG.CELL_SIZE;
             
-            while (attempts < 50) {
-                const x = Math.floor(Math.random() * (size - 2)) + 1;
-                const z = Math.floor(Math.random() * (size - 2)) + 1;
-                
-                if (maze[z][x] === 0) {
-                    if ((x === 1 && z === 1) || (x === size - 2 && z === size - 2)) {
-                        attempts++;
-                        continue;
-                    }
-                    
-                    const px = Math.floor(player.position.x / CONFIG.CELL_SIZE);
-                    const pz = Math.floor(player.position.z / CONFIG.CELL_SIZE);
-                    const dist = Math.abs(x - px) + Math.abs(z - pz);
-                    
-                    if (dist > 3) {
-                        const meteorite = new Meteorite(x, z, CONFIG.WARNING_TIME + Math.random() * 500);
-                        meteorites.push(meteorite);
-                        return;
-                    }
-                }
-                attempts++;
-            }
-        }
-        
-        // ============ 小地图和迷雾系统 ============
-        function updateExplored() {
-            const px = Math.floor(player.position.x / CONFIG.CELL_SIZE);
-            const pz = Math.floor(player.position.z / CONFIG.CELL_SIZE);
+            // 转换为格子索引
+            const gx = Math.floor(x / cs);
+            const gz = Math.floor(z / cs);
             
-            // 标记视野范围内的区域为已探索
-            for (let dx = -CONFIG.VIEW_RANGE; dx <= CONFIG.VIEW_RANGE; dx++) {
-                for (let dz = -CONFIG.VIEW_RANGE; dz <= CONFIG.VIEW_RANGE; dz++) {
-                    if (dx * dx + dz * dz <= CONFIG.VIEW_RANGE * CONFIG.VIEW_RANGE) {
-                        const x = px + dx;
-                        const z = pz + dz;
-                        if (x >= 0 && x < CONFIG.MAZE_SIZE && z >= 0 && z < CONFIG.MAZE_SIZE) {
-                            explored.add(`${x},${z}`);
-                        }
-                    }
-                }
-            }
+            // 边界检查
+            if (gx < 0 || gx >= size || gz < 0 || gz >= size) return true;
+            
+            return maze[gz][gx] === 1;
         }
-        
+
+        function canMove(newX, newZ) {
+            const r = CONFIG.PLAYER_RADIUS;
+            // 检查四个角
+            return !isWall(newX - r, newZ - r) &&
+                   !isWall(newX + r, newZ - r) &&
+                   !isWall(newX - r, newZ + r) &&
+                   !isWall(newX + r, newZ + r);
+        }
+
+        // 检查是否到达出口
+        function checkWin() {
+            const size = CONFIG.MAZE_SIZE;
+            const cs = CONFIG.CELL_SIZE;
+            const exitX = (size - 2) * cs + cs / 2;
+            const exitZ = (size - 2) * cs + cs / 2;
+            
+            const dx = player.pos.x - exitX;
+            const dz = player.pos.z - exitZ;
+            
+            return Math.sqrt(dx * dx + dz * dz) < cs;
+        }
+
+        // 更新小地图
         function updateMinimap() {
             const ctx = minimapCtx;
             const canvas = ctx.canvas;
-            const px = Math.floor(player.position.x / CONFIG.CELL_SIZE);
-            const pz = Math.floor(player.position.z / CONFIG.CELL_SIZE);
-            const range = 8; // 显示16x16范围
+            const size = CONFIG.MAZE_SIZE;
+            const cs = CONFIG.CELL_SIZE;
+            
+            // 玩家位置（格子索引）
+            const px = Math.floor(player.pos.x / cs);
+            const pz = Math.floor(player.pos.z / cs);
+            const range = 8;
             
             ctx.fillStyle = '#111';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            const cellSize = canvas.width / (range * 2 + 1);
+            const cellPx = canvas.width / (range * 2 + 1);
             
-            for (let dx = -range; dx <= range; dx++) {
-                for (let dz = -range; dz <= range; dz++) {
+            for (let dz = -range; dz <= range; dz++) {
+                for (let dx = -range; dx <= range; dx++) {
                     const mx = px + dx;
                     const mz = pz + dz;
-                    const screenX = (dx + range) * cellSize;
-                    const screenY = (dz + range) * cellSize;
+                    const sx = (dx + range) * cellPx;
+                    const sy = (dz + range) * cellPx;
                     
-                    // 边界检查
-                    if (mx < 0 || mx >= CONFIG.MAZE_SIZE || mz < 0 || mz >= CONFIG.MAZE_SIZE) {
+                    if (mx < 0 || mx >= size || mz < 0 || mz >= size) {
                         ctx.fillStyle = '#000';
-                        ctx.fillRect(screenX, screenY, cellSize, cellSize);
-                        continue;
-                    }
-                    
-                    const key = `${mx},${mz}`;
-                    const isExplored = explored.has(key);
-                    
-                    if (!isExplored) {
-                        // 未探索区域 - 迷雾
-                        ctx.fillStyle = '#222';
-                        ctx.fillRect(screenX, screenY, cellSize, cellSize);
                     } else if (maze[mz][mx] === 1) {
-                        // 墙壁
                         ctx.fillStyle = '#555';
-                        ctx.fillRect(screenX, screenY, cellSize, cellSize);
                     } else {
-                        // 通道
                         ctx.fillStyle = '#888';
-                        ctx.fillRect(screenX, screenY, cellSize, cellSize);
                     }
+                    ctx.fillRect(sx, sy, cellPx, cellPx);
                 }
             }
             
-            // 绘制陷阱
-            ctx.fillStyle = '#ff0000';
-            for (const trap of traps) {
-                const dx = trap.x - px;
-                const dz = trap.z - pz;
-                if (Math.abs(dx) <= range && Math.abs(dz) <= range) {
-                    const screenX = (dx + range) * cellSize + cellSize / 4;
-                    const screenY = (dz + range) * cellSize + cellSize / 4;
-                    ctx.fillRect(screenX, screenY, cellSize / 2, cellSize / 2);
-                }
-            }
-            
-            // 绘制僵尸
-            ctx.fillStyle = '#9370db';
-            for (const zombie of zombies) {
-                const dx = zombie.x - px;
-                const dz = zombie.z - pz;
-                if (Math.abs(dx) <= range && Math.abs(dz) <= range) {
-                    const screenX = (dx + range) * cellSize + cellSize / 4;
-                    const screenY = (dz + range) * cellSize + cellSize / 4;
-                    ctx.fillRect(screenX, screenY, cellSize / 2, cellSize / 2);
-                }
-            }
-            
-            // 绘制出口
-            const exitX = CONFIG.MAZE_SIZE - 2;
-            const exitZ = CONFIG.MAZE_SIZE - 2;
-            const exitDx = exitX - px;
-            const exitDz = exitZ - pz;
-            if (Math.abs(exitDx) <= range && Math.abs(exitDz) <= range) {
+            // 出口
+            const exitX = size - 2;
+            const exitZ = size - 2;
+            const edx = exitX - px;
+            const edz = exitZ - pz;
+            if (Math.abs(edx) <= range && Math.abs(edz) <= range) {
                 ctx.fillStyle = '#ffd700';
-                const screenX = (exitDx + range) * cellSize;
-                const screenY = (exitDz + range) * cellSize;
-                ctx.fillRect(screenX, screenY, cellSize, cellSize);
+                ctx.fillRect((edx + range) * cellPx, (edz + range) * cellPx, cellPx, cellPx);
             }
             
-            // 绘制玩家位置
+            // 玩家
             ctx.fillStyle = '#00ff00';
             ctx.beginPath();
-            ctx.arc(canvas.width / 2, canvas.height / 2, cellSize / 2, 0, Math.PI * 2);
+            ctx.arc(canvas.width / 2, canvas.height / 2, cellPx / 2, 0, Math.PI * 2);
             ctx.fill();
-            
-            // 绘制玩家朝向
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(canvas.width / 2, canvas.height / 2);
-            ctx.lineTo(
-                canvas.width / 2 - Math.sin(player.rotation.y) * cellSize,
-                canvas.height / 2 - Math.cos(player.rotation.y) * cellSize
-            );
-            ctx.stroke();
         }
-        
-        // ============ 碰撞检测 ============
-        function checkWallCollision(newX, newZ) {
-            const radius = CONFIG.PLAYER_RADIUS;
-            const checks = [
-                [newX - radius, newZ - radius],
-                [newX + radius, newZ - radius],
-                [newX - radius, newZ + radius],
-                [newX + radius, newZ + radius],
-            ];
+
+        // 游戏主循环
+        function animate(time = 0) {
+            requestAnimationFrame(animate);
             
-            for (const [cx, cz] of checks) {
-                const mx = Math.floor(cx / CONFIG.CELL_SIZE + 0.5);
-                const mz = Math.floor(cz / CONFIG.CELL_SIZE + 0.5);
-                
-                if (mx < 0 || mx >= CONFIG.MAZE_SIZE || mz < 0 || mz >= CONFIG.MAZE_SIZE) return true;
-                if (maze[mz][mx] === 1) return true;
-            }
-            return false;
-        }
-        
-        function checkExit() {
-            const exitX = (CONFIG.MAZE_SIZE - 2) * CONFIG.CELL_SIZE;
-            const exitZ = (CONFIG.MAZE_SIZE - 2) * CONFIG.CELL_SIZE;
-            const dx = player.position.x - exitX;
-            const dz = player.position.z - exitZ;
-            return Math.sqrt(dx * dx + dz * dz) < CONFIG.CELL_SIZE * 1.5;
-        }
-        
-        // ============ 关卡管理 ============
-        function loadLevel(levelNum) {
-            currentLevel = levelNum;
-            const theme = THEMES[levelNum - 1];
-            
-            // 清除旧数据
-            meteorites.forEach(m => m.remove());
-            meteorites = [];
-            traps.forEach(t => scene.remove(t.mesh));
-            traps = [];
-            zombies.forEach(z => z.remove());
-            zombies = [];
-            explored.clear();
-            
-            // 生成迷宫
-            maze = generateMaze(CONFIG.MAZE_SIZE);
-            maze = ensurePathExists(maze);
-            
-            createMaze3D(maze);
-            
-            // 重置玩家位置（在入口区域）
-            player.position.set(
-                2 * CONFIG.CELL_SIZE,
-                CONFIG.PLAYER_HEIGHT,
-                2 * CONFIG.CELL_SIZE
-            );
-            player.velocity.set(0, 0, 0);
-            player.verticalVelocity = 0;
-            player.isGrounded = true;
-            player.rotation.y = 0;
-            player.rotation.x = 0;
-            
-            // 更新UI
-            document.getElementById('levelNum').textContent = levelNum;
-            document.getElementById('themeName').textContent = theme.name;
-            updateLivesUI();
-            
-            lastMeteorTime = Date.now();
-        }
-        
-        function nextLevel() {
-            if (currentLevel >= 16) {
-                gameRunning = false;
-                document.getElementById('victoryScreen').style.display = 'flex';
-                document.exitPointerLock();
-            } else {
-                const nextTheme = THEMES[currentLevel].name;
-                document.getElementById('nextTheme').textContent = nextTheme;
-                document.getElementById('levelTransition').style.display = 'flex';
-                document.exitPointerLock();
-                gamePaused = true;
-                
-                setTimeout(() => {
-                    document.getElementById('levelTransition').style.display = 'none';
-                    gamePaused = false;
-                    loadLevel(currentLevel + 1);
-                    if (gameRunning) document.body.requestPointerLock();
-                }, 2000);
-            }
-        }
-        
-        function updateLivesUI() {
-            document.getElementById('lives').textContent = '❤️'.repeat(Math.max(0, player.lives));
-            document.getElementById('zombieCount').textContent = zombies.filter(z => !z.stunned).length;
-        }
-        
-        function playerHit() {
-            player.lives--;
-            updateLivesUI();
-            
-            const warning = document.getElementById('warning');
-            warning.classList.add('active');
-            setTimeout(() => warning.classList.remove('active'), 300);
-            
-            if (player.lives <= 0) {
-                gameOver();
-            }
-        }
-        
-        function gameOver() {
-            gameRunning = false;
-            document.getElementById('deathLevel').textContent = currentLevel;
-            document.getElementById('gameOverScreen').style.display = 'flex';
-            document.exitPointerLock();
-        }
-        
-        // ============ 游戏主循环 ============
-        function gameLoop(currentTime) {
-            requestAnimationFrame(gameLoop);
-            
-            const deltaTime = Math.min((currentTime - lastTime) / 1000, 0.1);
-            lastTime = currentTime;
-            
-            if (!gameRunning || gamePaused) {
+            const dt = 0.016; // 固定时间步长
+
+            if (!running) {
                 renderer.render(scene, camera);
                 return;
             }
-            
-            // 玩家输入
-            let inputX = 0, inputZ = 0;
-            if (keys['KeyW'] || keys['ArrowUp']) inputZ = -1;
-            if (keys['KeyS'] || keys['ArrowDown']) inputZ = 1;
-            if (keys['KeyA'] || keys['ArrowLeft']) inputX = -1;
-            if (keys['KeyD'] || keys['ArrowRight']) inputX = 1;
-            
+
+            // 输入
+            let moveX = 0, moveZ = 0;
+            if (keys['KeyW'] || keys['ArrowUp']) moveZ = -1;
+            if (keys['KeyS'] || keys['ArrowDown']) moveZ = 1;
+            if (keys['KeyA'] || keys['ArrowLeft']) moveX = -1;
+            if (keys['KeyD'] || keys['ArrowRight']) moveX = 1;
+
             // 跳跃
-            if (keys['Space'] && player.isGrounded) {
-                player.verticalVelocity = CONFIG.JUMP_FORCE;
-                player.isGrounded = false;
+            if (keys['Space'] && player.grounded) {
+                player.vel.y = CONFIG.JUMP_FORCE;
+                player.grounded = false;
                 keys['Space'] = false;
             }
+
+            // 移动方向（相对于玩家朝向）
+            const speed = CONFIG.MOVE_SPEED;
+            const angle = player.rotY;
             
-            // 加速度移动
-            const angle = player.rotation.y;
-            const isMoving = inputX !== 0 || inputZ !== 0;
-            
-            if (isMoving) {
-                const targetVelX = (Math.sin(angle) * inputZ + Math.cos(angle) * inputX) * CONFIG.MOVE_SPEED;
-                const targetVelZ = (Math.cos(angle) * inputZ - Math.sin(angle) * inputX) * CONFIG.MOVE_SPEED;
-                
-                player.velocity.x += (targetVelX - player.velocity.x) * CONFIG.ACCELERATION * deltaTime;
-                player.velocity.z += (targetVelZ - player.velocity.z) * CONFIG.ACCELERATION * deltaTime;
-                
-                walkTime += deltaTime * 10;
-            } else {
-                player.velocity.x *= (1 - CONFIG.FRICTION * deltaTime);
-                player.velocity.z *= (1 - CONFIG.FRICTION * deltaTime);
-                if (Math.abs(player.velocity.x) < 0.01) player.velocity.x = 0;
-                if (Math.abs(player.velocity.z) < 0.01) player.velocity.z = 0;
+            const vx = (Math.sin(angle) * moveZ + Math.cos(angle) * moveX) * speed;
+            const vz = (Math.cos(angle) * moveZ - Math.sin(angle) * moveX) * speed;
+
+            // 尝试移动（分轴检测）
+            const newX = player.pos.x + vx * dt;
+            const newZ = player.pos.z + vz * dt;
+
+            if (canMove(newX, player.pos.z)) {
+                player.pos.x = newX;
             }
-            
-            // 应用水平移动
-            const newX = player.position.x + player.velocity.x * deltaTime;
-            const newZ = player.position.z + player.velocity.z * deltaTime;
-            
-            if (!checkWallCollision(newX, player.position.z)) {
-                player.position.x = newX;
-            } else {
-                player.velocity.x = 0;
+            if (canMove(player.pos.x, newZ)) {
+                player.pos.z = newZ;
             }
-            if (!checkWallCollision(player.position.x, newZ)) {
-                player.position.z = newZ;
-            } else {
-                player.velocity.z = 0;
-            }
-            
+
             // 重力
-            if (!player.isGrounded) {
-                player.verticalVelocity -= CONFIG.GRAVITY * deltaTime;
+            if (!player.grounded) {
+                player.vel.y -= CONFIG.GRAVITY * dt;
             }
-            player.position.y += player.verticalVelocity * deltaTime;
-            
-            if (player.position.y <= CONFIG.PLAYER_HEIGHT) {
-                player.position.y = CONFIG.PLAYER_HEIGHT;
-                player.verticalVelocity = 0;
-                player.isGrounded = true;
+            player.pos.y += player.vel.y * dt;
+
+            if (player.pos.y <= CONFIG.PLAYER_HEIGHT) {
+                player.pos.y = CONFIG.PLAYER_HEIGHT;
+                player.vel.y = 0;
+                player.grounded = true;
             }
-            
-            // 陷阱检测
-            if (checkTrapCollision()) {
-                playerHit();
-                player.velocity.x *= -0.5;
-                player.velocity.z *= -0.5;
-            }
-            
+
             // 更新相机
-            camera.position.copy(player.position);
-            if (isMoving && player.isGrounded) {
-                camera.position.y += Math.sin(walkTime) * 0.05;
-            }
+            camera.position.copy(player.pos);
             camera.rotation.set(0, 0, 0);
-            camera.rotateY(player.rotation.y);
-            camera.rotateX(player.rotation.x);
-            
-            // 更新玩家头顶灯位置
-            if (window.playerLight) {
-                window.playerLight.position.copy(player.position);
-                window.playerLight.position.y += 3;
+            camera.rotateY(player.rotY);
+            camera.rotateX(player.rotX);
+
+            // 更新玩家灯光
+            const pl = scene.getObjectByName('playerLight');
+            if (pl) {
+                pl.position.copy(player.pos);
+                pl.position.y += 2;
             }
-            
-            // 生成陨石
-            const meteorInterval = Math.max(3000 - currentLevel * 150, 1000);
-            if (Date.now() - lastMeteorTime > meteorInterval) {
-                lastMeteorTime = Date.now();
-                if (meteorites.length < 5 + currentLevel) {
-                    spawnMeteorite();
+
+            // 检查胜利
+            if (checkWin()) {
+                level++;
+                if (level > 16) {
+                    running = false;
+                    document.getElementById('winScreen').style.display = 'flex';
+                    document.exitPointerLock();
+                } else {
+                    loadLevel();
                 }
             }
-            
-            // 更新陨石
-            for (let i = meteorites.length - 1; i >= 0; i--) {
-                const hit = meteorites[i].update(deltaTime);
-                if (hit) {
-                    playerHit();
-                    meteorites[i].remove();
-                    meteorites.splice(i, 1);
-                } else if (meteorites[i].hit) {
-                    meteorites.splice(i, 1);
-                }
-            }
-            
-            // 更新僵尸
-            for (const zombie of zombies) {
-                const attacked = zombie.update(deltaTime);
-                if (attacked) {
-                    playerHit();
-                }
-            }
-            updateLivesUI();
-            
-            // 检查出口
-            if (checkExit()) {
-                nextLevel();
-            }
-            
-            // 出口动画
-            if (exitMarker) {
-                exitMarker.rotation.y += 0.02;
-            }
-            
-            // 更新探索区域和小地图
-            updateExplored();
+
+            // 更新UI
+            document.getElementById('level').textContent = level;
             updateMinimap();
-            
+
             renderer.render(scene, camera);
         }
-        
-        // ============ 开始游戏 ============
+
+        // 加载关卡
+        function loadLevel() {
+            maze = generateMaze(CONFIG.MAZE_SIZE);
+            createMaze();
+
+            // 重置玩家位置
+            const cs = CONFIG.CELL_SIZE;
+            player.pos.set(2 * cs + cs / 2, CONFIG.PLAYER_HEIGHT, 2 * cs + cs / 2);
+            player.vel.set(0, 0, 0);
+            player.rotY = 0;
+            player.rotX = 0;
+            player.grounded = true;
+
+            document.getElementById('level').textContent = level;
+            updateLives();
+        }
+
+        function updateLives() {
+            document.getElementById('lives').textContent = '❤️'.repeat(player.lives);
+        }
+
+        // 开始游戏
         function startGame() {
             document.getElementById('startScreen').style.display = 'none';
-            document.getElementById('victoryScreen').style.display = 'none';
-            document.getElementById('gameOverScreen').style.display = 'none';
+            document.getElementById('winScreen').style.display = 'none';
             
+            level = 1;
             player.lives = 3;
-            currentLevel = 1;
-            gameRunning = true;
-            gamePaused = false;
+            running = true;
             
-            loadLevel(1);
+            loadLevel();
             document.body.requestPointerLock();
         }
-        
-        function restartGame() {
-            document.getElementById('gameOverScreen').style.display = 'none';
-            player.lives = 3;
-            currentLevel = 1;
-            gameRunning = true;
-            gamePaused = false;
-            
-            loadLevel(1);
-            document.body.requestPointerLock();
-        }
-        
-        // ============ 初始化 ============
-        function init() {
-            initThreeJS();
-            
-            document.getElementById('startBtn').addEventListener('click', startGame);
-            document.getElementById('restartBtn').addEventListener('click', restartGame);
-            document.getElementById('playAgainBtn').addEventListener('click', startGame);
-            
-            requestAnimationFrame(gameLoop);
-        }
-        
+
+        // 启动
         window.addEventListener('load', init);
     </script>
 </body>
