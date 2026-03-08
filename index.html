@@ -341,7 +341,7 @@
         
         <!-- 操作提示 -->
         <div class="hint-box">
-            <span>W A S D</span> 移动 | <span>鼠标</span> 转向 | <span>目标: 到达金色出口</span>
+            <span>W A S D</span> 移动 | <span>空格</span> 跳跃 | <span>鼠标</span> 转向 | <span style="color:#ff6b6b">红色陷阱</span>要跳过去
         </div>
         
         <!-- 移动端控制 -->
@@ -358,9 +358,10 @@
             <button class="start-btn" id="startBtn">开始游戏</button>
             <div class="instructions">
                 <p><span>W A S D</span> 或 <span>方向键</span> 移动</p>
+                <p><span>空格键</span> 跳跃躲避陷阱</p>
                 <p><span>鼠标</span> 控制视角</p>
-                <p><span>绿色</span> 起点 | <span>金色</span> 终点</p>
-                <p>躲避<span style="color:#ff6b6b">陨石</span>，安全到达出口！</p>
+                <p><span style="color:#00ff00">绿色</span> 起点 | <span style="color:#ffd700">金色</span> 终点 | <span style="color:#ff0000">红色</span> 陷阱</p>
+                <p>躲避<span style="color:#ff6b6b">陨石</span>，跳过陷阱，到达出口！</p>
             </div>
         </div>
         
@@ -396,6 +397,10 @@
             PLAYER_HEIGHT: 1.6,
             PLAYER_RADIUS: 0.3,
             MOVE_SPEED: 8,
+            ACCELERATION: 25,      // 加速度
+            FRICTION: 8,           // 摩擦力/减速
+            JUMP_FORCE: 8,         // 跳跃力度
+            GRAVITY: 20,           // 重力
             METEORITE_DAMAGE_RADIUS: 2,
             METEORITE_FALL_SPEED: 15,
             WARNING_TIME: 1500, // 警告时间ms
@@ -415,14 +420,17 @@
         let scene, camera, renderer;
         let player = {
             position: new THREE.Vector3(),
-            velocity: new THREE.Vector3(),
+            velocity: new THREE.Vector3(),     // 水平速度
+            verticalVelocity: 0,               // 垂直速度（跳跃/重力）
             rotation: { x: 0, y: 0 },
             lives: 3,
+            isGrounded: true,                  // 是否在地面上
         };
         let currentLevel = 1;
         let maze = [];
         let mazeGroup;
         let meteorites = [];
+        let traps = [];                        // 陷阱数组
         let exitMarker;
         let gameRunning = false;
         let gamePaused = false;
@@ -584,6 +592,23 @@
                 }
             }
             
+            // 创建天花板（封闭迷宫）
+            const ceilingMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x1a1a2e,
+                roughness: 0.9,
+                side: THREE.BackSide
+            });
+            const ceilingGeometry = new THREE.PlaneGeometry(size * cellSize, size * cellSize);
+            const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.set(size * cellSize / 2 - cellSize / 2, wallHeight, size * cellSize / 2 - cellSize / 2);
+            mazeGroup.add(ceiling);
+            
+            // 天花板灯光（让迷宫更明亮）
+            const ceilingLight = new THREE.PointLight(0x8888ff, 0.5, 100);
+            ceilingLight.position.set(size * cellSize / 2, wallHeight - 0.5, size * cellSize / 2);
+            mazeGroup.add(ceilingLight);
+            
             // 创建入口标记（绿色）
             const entranceGeometry = new THREE.BoxGeometry(cellSize * 0.8, 0.1, cellSize * 0.8);
             const entranceMaterial = new THREE.MeshStandardMaterial({ 
@@ -627,12 +652,76 @@
             beam.position.set((size - 2) * cellSize, 10, (size - 2) * cellSize);
             mazeGroup.add(beam);
             
+            // 生成地面陷阱
+            generateTraps(mazeData, cellSize, size);
+            
             scene.add(mazeGroup);
             
             return {
                 entrance: { x: 1, z: 1 },
                 exit: { x: size - 2, z: size - 2 }
             };
+        }
+        
+        // ============ 陷阱系统 ============
+        function generateTraps(mazeData, cellSize, size) {
+            // 清除旧陷阱
+            traps.forEach(t => scene.remove(t.mesh));
+            traps = [];
+            
+            // 根据关卡决定陷阱数量
+            const trapCount = Math.min(3 + currentLevel, 15);
+            let placed = 0;
+            let attempts = 0;
+            
+            while (placed < trapCount && attempts < 200) {
+                const x = Math.floor(Math.random() * (size - 2)) + 1;
+                const z = Math.floor(Math.random() * (size - 2)) + 1;
+                
+                // 确保在通道上，且不在入口、出口
+                if (mazeData[z][x] === 0 && !(x === 1 && z === 1) && !(x === size - 2 && z === size - 2)) {
+                    // 检查是否已有陷阱
+                    const hasTrap = traps.some(t => t.x === x && t.z === z);
+                    if (!hasTrap) {
+                        const trap = createTrap(x, z, cellSize);
+                        traps.push(trap);
+                        placed++;
+                    }
+                }
+                attempts++;
+            }
+        }
+        
+        function createTrap(x, z, cellSize) {
+            // 创建陷阱模型（红色发光的地板区域）
+            const geometry = new THREE.BoxGeometry(cellSize * 0.9, 0.15, cellSize * 0.9);
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0xff0000, 
+                emissive: 0xff0000,
+                emissiveIntensity: 0.3,
+                transparent: true,
+                opacity: 0.8
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(x * cellSize, 0.08, z * cellSize);
+            scene.add(mesh);
+            
+            return { x, z, mesh, cellSize };
+        }
+        
+        function checkTrapCollision() {
+            if (!player.isGrounded) return false; // 跳跃时不触发陷阱
+            
+            for (const trap of traps) {
+                const px = player.position.x / CONFIG.CELL_SIZE;
+                const pz = player.position.z / CONFIG.CELL_SIZE;
+                const dist = Math.sqrt((px - trap.x) ** 2 + (pz - trap.z) ** 2);
+                
+                if (dist < 0.6) {
+                    return true;
+                }
+            }
+            return false;
         }
         
         // ============ 陨石系统 ============
@@ -873,6 +962,9 @@
                 CONFIG.PLAYER_HEIGHT,
                 positions.entrance.z * CONFIG.CELL_SIZE
             );
+            player.velocity.set(0, 0, 0);
+            player.verticalVelocity = 0;
+            player.isGrounded = true;
             player.rotation.y = 0;
             player.rotation.x = 0;
             
@@ -940,7 +1032,7 @@
         function gameLoop(currentTime) {
             requestAnimationFrame(gameLoop);
             
-            const deltaTime = (currentTime - lastTime) / 1000;
+            const deltaTime = Math.min((currentTime - lastTime) / 1000, 0.1); // 限制最大deltaTime
             lastTime = currentTime;
             
             if (!gameRunning || gamePaused) {
@@ -948,51 +1040,99 @@
                 return;
             }
             
-            // 玩家移动
-            let moveX = 0, moveZ = 0;
+            // ========== 玩家输入处理 ==========
+            let inputX = 0, inputZ = 0;
             
-            if (keys['KeyW'] || keys['ArrowUp']) moveZ = -1;
-            if (keys['KeyS'] || keys['ArrowDown']) moveZ = 1;
-            if (keys['KeyA'] || keys['ArrowLeft']) moveX = -1;
-            if (keys['KeyD'] || keys['ArrowRight']) moveX = 1;
+            if (keys['KeyW'] || keys['ArrowUp']) inputZ = -1;
+            if (keys['KeyS'] || keys['ArrowDown']) inputZ = 1;
+            if (keys['KeyA'] || keys['ArrowLeft']) inputX = -1;
+            if (keys['KeyD'] || keys['ArrowRight']) inputX = 1;
             
-            const isMoving = moveX !== 0 || moveZ !== 0;
-            
-            if (isMoving) {
-                const angle = player.rotation.y;
-                const speed = CONFIG.MOVE_SPEED * deltaTime;
-                
-                const dx = (Math.sin(angle) * moveZ + Math.cos(angle) * moveX) * speed;
-                const dz = (Math.cos(angle) * moveZ - Math.sin(angle) * moveX) * speed;
-                
-                const newX = player.position.x + dx;
-                const newZ = player.position.z + dz;
-                
-                // 分别检测X和Z方向的碰撞
-                if (!checkWallCollision(newX, player.position.z)) {
-                    player.position.x = newX;
-                }
-                if (!checkWallCollision(player.position.x, newZ)) {
-                    player.position.z = newZ;
-                }
-                
-                // 更新走路时间（用于头部晃动）
-                walkTime += deltaTime * 10;
+            // 跳跃输入（空格键）
+            if (keys['Space'] && player.isGrounded) {
+                player.verticalVelocity = CONFIG.JUMP_FORCE;
+                player.isGrounded = false;
+                keys['Space'] = false; // 防止按住不放
             }
             
-            // 更新相机 - 模拟人行走时的头部晃动
+            // ========== 加速度移动 ==========
+            const angle = player.rotation.y;
+            const isMoving = inputX !== 0 || inputZ !== 0;
+            
+            if (isMoving) {
+                // 计算目标速度方向
+                const targetVelX = (Math.sin(angle) * inputZ + Math.cos(angle) * inputX) * CONFIG.MOVE_SPEED;
+                const targetVelZ = (Math.cos(angle) * inputZ - Math.sin(angle) * inputX) * CONFIG.MOVE_SPEED;
+                
+                // 加速度插值
+                player.velocity.x += (targetVelX - player.velocity.x) * CONFIG.ACCELERATION * deltaTime;
+                player.velocity.z += (targetVelZ - player.velocity.z) * CONFIG.ACCELERATION * deltaTime;
+                
+                walkTime += deltaTime * 10;
+            } else {
+                // 摩擦力减速
+                player.velocity.x *= (1 - CONFIG.FRICTION * deltaTime);
+                player.velocity.z *= (1 - CONFIG.FRICTION * deltaTime);
+                
+                // 速度很小时归零
+                if (Math.abs(player.velocity.x) < 0.01) player.velocity.x = 0;
+                if (Math.abs(player.velocity.z) < 0.01) player.velocity.z = 0;
+            }
+            
+            // 应用水平移动
+            const newX = player.position.x + player.velocity.x * deltaTime;
+            const newZ = player.position.z + player.velocity.z * deltaTime;
+            
+            // 分别检测X和Z方向的碰撞
+            if (!checkWallCollision(newX, player.position.z)) {
+                player.position.x = newX;
+            } else {
+                player.velocity.x = 0; // 撞墙停止
+            }
+            if (!checkWallCollision(player.position.x, newZ)) {
+                player.position.z = newZ;
+            } else {
+                player.velocity.z = 0; // 撞墙停止
+            }
+            
+            // ========== 重力和跳跃 ==========
+            if (!player.isGrounded) {
+                player.verticalVelocity -= CONFIG.GRAVITY * deltaTime;
+            }
+            
+            // 应用垂直移动
+            player.position.y += player.verticalVelocity * deltaTime;
+            
+            // 检测地面
+            if (player.position.y <= CONFIG.PLAYER_HEIGHT) {
+                player.position.y = CONFIG.PLAYER_HEIGHT;
+                player.verticalVelocity = 0;
+                player.isGrounded = true;
+            }
+            
+            // ========== 检测陷阱 ==========
+            if (checkTrapCollision()) {
+                playerHit();
+                // 将玩家弹开
+                player.velocity.x *= -0.5;
+                player.velocity.z *= -0.5;
+            }
+            
+            // ========== 更新相机 ==========
+            // 使用Euler角正确设置相机旋转，避免倾斜
             camera.position.copy(player.position);
             
-            // 头部晃动效果：上下和左右
-            if (isMoving) {
-                const bobAmount = 0.08; // 晃动幅度
+            // 头部晃动效果（仅在地面时）
+            if (isMoving && player.isGrounded) {
+                const bobAmount = 0.06;
                 const bobSpeed = walkTime;
                 camera.position.y += Math.sin(bobSpeed) * bobAmount;
-                camera.position.x += Math.cos(bobSpeed * 0.5) * bobAmount * 0.3;
             }
             
-            camera.rotation.y = player.rotation.y;
-            camera.rotation.x = player.rotation.x;
+            // 正确设置相机旋转（YXZ顺序，避免倾斜）
+            camera.rotation.set(0, 0, 0);
+            camera.rotateY(player.rotation.y);
+            camera.rotateX(player.rotation.x);
             
             // 生成陨石
             const level = LEVELS[currentLevel - 1];
