@@ -317,38 +317,36 @@
             
             // 计算剑在相机前方偏右下的位置
             const basePos = sword.userData.basePos;
+            const baseRot = sword.userData.baseRot;
             const swordPos = new THREE.Vector3();
+            const idleBob = Math.sin(performance.now() * 0.004) * 0.012;
+            const swingProgress = swordSwinging ? Math.min(swordSwingTime / 0.25, 1) : 0;
+            const swingCurve = Math.sin(swingProgress * Math.PI);
             swordPos.copy(camera.position);
-            swordPos.add(forward.clone().multiplyScalar(Math.abs(basePos.z)));
-            swordPos.add(right.clone().multiplyScalar(basePos.x));
-            swordPos.add(up.clone().multiplyScalar(basePos.y));
+            swordPos.add(forward.clone().multiplyScalar(Math.abs(basePos.z) + swingCurve * 0.2));
+            swordPos.add(right.clone().multiplyScalar(basePos.x - swingCurve * 0.22));
+            swordPos.add(up.clone().multiplyScalar(basePos.y + idleBob - swingCurve * 0.05));
             sword.position.copy(swordPos);
             
             // 剑的旋转跟随相机
             sword.quaternion.copy(camera.quaternion);
-            const swingOffset = swordSwinging ? Math.sin(swordSwingTime * 15) * 1.2 : 0;
-            sword.rotateX(sword.userData.baseRot.x + swingOffset);
-            sword.rotateY(sword.userData.baseRot.y);
-            sword.rotateZ(sword.userData.baseRot.z);
+            sword.rotateX(baseRot.x - swingCurve * 1.05);
+            sword.rotateY(baseRot.y - swingCurve * 0.72);
+            sword.rotateZ(baseRot.z + swingCurve * 1.7);
         }
 
         // ========== 挥剑动画 ==========
         function swingSword() {
-            if (swordSwinging) return;
+            if (!sword) return;
             swordSwinging = true;
             swordSwingTime = 0;
         }
 
         function updateSwordAnimation(dt) {
             if (!sword) return;
-            
-            const swingDuration = 0.25;  // 挥剑动画持续时间
-            
             if (swordSwinging) {
                 swordSwingTime += dt;
-                const progress = swordSwingTime / swingDuration;
-                
-                if (progress >= 1) {
+                if (swordSwingTime >= 0.25) {
                     swordSwinging = false;
                     swordSwingTime = 0;
                 }
@@ -623,6 +621,10 @@
             // 生成陷阱和僵尸
             generateTraps();
             generateZombies();
+
+            if (sword && sword.parent !== scene) {
+                scene.add(sword);
+            }
         }
 
         // ========== 陷阱系统 ==========
@@ -987,6 +989,7 @@
                 camera.rotation.set(0, 0, 0);
                 camera.rotateY(player.rotY);
                 camera.rotateX(player.rotX);
+                updateSwordAnimation(0);
                 renderer.render(scene, camera);
                 return;
             }
@@ -1117,6 +1120,8 @@
             player.rotX = 0;
             player.grounded = true;
             player.lastDamageTime = 0;
+            swordSwinging = false;
+            swordSwingTime = 0;
             lastAttackTime = -Infinity;
             if (attackAnimTimer) {
                 clearTimeout(attackAnimTimer);
