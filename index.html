@@ -205,6 +205,18 @@
             dirLight.position.set(50, 100, 50);
             scene.add(dirLight);
 
+            // 预先创建一个初始场景和玩家位置
+            generateMaze();
+            createScene();
+            
+            // 设置玩家初始位置 - 格子(3,3)中心
+            // gridToWorld: x = gx * CELL_SIZE + CELL_SIZE/2 = 3 * 4 + 2 = 14
+            const spawnPos = gridToWorld(3, 3);
+            player.x = spawnPos.x;   // 14
+            player.y = PLAYER_HEIGHT; // 1.6
+            player.z = spawnPos.z;   // 14
+            player.rotY = Math.PI * 0.75;
+
             // 事件
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
@@ -494,20 +506,27 @@
 
                 const pos = gridToWorld(gx, gz);
                 
-                const bodyGeo = new THREE.CapsuleGeometry(0.4, 1, 4, 8);
+                // 使用圆柱体代替胶囊体（r128不支持CapsuleGeometry）
+                const bodyGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.8, 8);
                 const bodyMat = new THREE.MeshStandardMaterial({ color: 0x9370db, emissive: 0x4a0080, emissiveIntensity: 0.3 });
                 this.mesh = new THREE.Mesh(bodyGeo, bodyMat);
                 this.mesh.position.set(pos.x, 1, pos.z);
                 scene.add(this.mesh);
 
+                // 头部
+                const headGeo = new THREE.SphereGeometry(0.3, 8, 8);
+                const head = new THREE.Mesh(headGeo, bodyMat);
+                head.position.set(0, 1.2, 0);
+                this.mesh.add(head);
+
                 // 眼睛
-                const eyeGeo = new THREE.SphereGeometry(0.1, 8, 8);
+                const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
                 const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
                 const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-                leftEye.position.set(-0.15, 0.3, 0.35);
+                leftEye.position.set(-0.12, 1.2, 0.25);
                 this.mesh.add(leftEye);
                 const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-                rightEye.position.set(0.15, 0.3, 0.35);
+                rightEye.position.set(0.12, 1.2, 0.25);
                 this.mesh.add(rightEye);
             }
 
@@ -714,6 +733,11 @@
             lastTime = time;
 
             if (!running) {
+                // 游戏未开始时也更新相机位置（显示出生点视角）
+                camera.position.set(player.x, player.y, player.z);
+                camera.rotation.set(0, 0, 0);
+                camera.rotateY(player.rotY);
+                camera.rotateX(player.rotX);
                 renderer.render(scene, camera);
                 return;
             }
@@ -823,9 +847,19 @@
             
             level = 1;
             player.lives = 3;
+            
+            // 先加载关卡，设置好玩家位置后，再开始游戏循环
+            loadLevel();
+            
+            // 立即更新相机位置
+            camera.position.set(player.x, player.y, player.z);
+            camera.rotation.set(0, 0, 0);
+            camera.rotateY(player.rotY);
+            camera.rotateX(player.rotX);
+            
+            // 最后设置running=true
             running = true;
             
-            loadLevel();
             document.body.requestPointerLock();
         }
 
