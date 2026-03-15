@@ -93,7 +93,8 @@ def remove_player_from_room(player: Player):
 async def send_to_player(player: Player, message: dict):
     """发送消息给单个玩家"""
     try:
-        await player.ws.send_json(message)
+        if player.ws and not player.ws.closed:
+            await player.ws.send_json(message)
     except Exception as e:
         print(f"[Error] 发送消息失败: {e}")
 
@@ -133,12 +134,8 @@ async def handle_join(player: Player, data: dict):
         "rot_y": player.rot_y
     }, exclude_player_id=player.id)
     
-    if len(room.players) == MAX_PLAYERS_PER_ROOM:
-        room.game_started = True
-        await broadcast_to_room(room, {
-            "type": "game_start",
-            "level": room.level
-        })
+    # 一人即可开始游戏，无需等待
+    room.game_started = True
 
 async def handle_update(player: Player, data: dict):
     """处理玩家状态更新"""

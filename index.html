@@ -321,7 +321,9 @@
 
         // ========== WebSocket 连接 ==========
         function connectToServer() {
-            const wsUrl = `ws://${window.location.host}/ws`;
+            // 根据页面协议自动选择 ws:// 或 wss://
+            const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${location.host}/ws`;
             updateConnectionStatus('connecting');
             
             try {
@@ -386,13 +388,9 @@
                         }
                     }
                     
-                    // 如果房间未满，显示等待界面
-                    if (Object.keys(data.players).length < 2) {
-                        document.getElementById('startScreen').style.display = 'none';
-                        document.getElementById('waitingScreen').style.display = 'flex';
-                        document.getElementById('waitingRoomId').textContent = roomId;
-                        document.getElementById('playerCount').textContent = Object.keys(data.players).length;
-                    }
+                    // 直接开始游戏，不需要等待
+                    document.getElementById('playerCount').textContent = Object.keys(otherPlayers).length + 1;
+                    startGame();
                     break;
                     
                 case 'player_joined':
@@ -409,7 +407,6 @@
                     
                 case 'game_start':
                     console.log('[WS] 游戏开始');
-                    startGame();
                     break;
                     
                 case 'player_update':
