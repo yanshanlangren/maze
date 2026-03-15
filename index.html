@@ -662,16 +662,25 @@
             const basePos = sword.userData.basePos;
             const swordPos = new THREE.Vector3();
             swordPos.copy(camera.position);
-            swordPos.add(forward.clone().multiplyScalar(Math.abs(basePos.z)));
+            // 剑在前方 -basePos.z (因为 z=-0.8，所以向前0.8)
+            swordPos.add(forward.clone().multiplyScalar(-basePos.z));
             swordPos.add(right.clone().multiplyScalar(basePos.x));
             swordPos.add(up.clone().multiplyScalar(basePos.y));
             sword.position.copy(swordPos);
             
             sword.quaternion.copy(camera.quaternion);
-            const swingOffset = swordSwinging ? Math.sin(swordSwingTime * 15) * 1.2 : 0;
+            
+            // 挥剑动画：剑从右下划向左上
+            let swingOffset = 0;
+            if (swordSwinging) {
+                // 使用平滑的挥剑曲线
+                const progress = Math.min(swordSwingTime / 0.25, 1);
+                swingOffset = Math.sin(progress * Math.PI) * 1.5;  // 0 -> 最大 -> 0
+            }
+            
             sword.rotateX(sword.userData.baseRot.x + swingOffset);
             sword.rotateY(sword.userData.baseRot.y);
-            sword.rotateZ(sword.userData.baseRot.z);
+            sword.rotateZ(sword.userData.baseRot.z - swingOffset * 0.3);
         }
 
         function swingSword() {
@@ -1132,8 +1141,8 @@
 
         // ========== 攻击 ==========
         function attackZombie() {
-            const attackRange = 3;
-            const attackAngle = Math.PI / 3;
+            const attackRange = 3.5;
+            const attackAngle = Math.PI / 2;  // 攻击角度范围90度
 
             for (const zombie of zombies) {
                 if (zombie.stunned) continue;
@@ -1143,12 +1152,21 @@
                 const dist = Math.sqrt(dx * dx + dz * dz);
 
                 if (dist < attackRange) {
-                    const angleToZombie = Math.atan2(dx, dz);
-                    let angleDiff = angleToZombie - player.rotY;
+                    // 计算僵尸相对于玩家的角度
+                    // Three.js 中 rotY=0 看向 -Z，rotY=π/2 看向 +X
+                    // 所以玩家看向的方向向量为 (sin(rotY), 0, -cos(rotY))
+                    // 或者说玩家朝向角度 = rotY + π（因为标准角度0指向+Z，π指向-Z）
+                    const playerLookAngle = player.rotY + Math.PI;  // 转换为标准角度
+                    const angleToZombie = Math.atan2(dx, dz);  // 标准角度计算
+                    
+                    let angleDiff = angleToZombie - playerLookAngle;
                     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
                     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
+                    console.log(`[Attack] dist=${dist.toFixed(2)}, angleDiff=${(angleDiff * 180 / Math.PI).toFixed(1)}°, rotY=${(player.rotY * 180 / Math.PI).toFixed(1)}°`);
+
                     if (Math.abs(angleDiff) < attackAngle) {
+                        console.log(`[Attack] 击中僵尸!`);
                         zombie.stun();
                         // 同步给其他玩家
                         sendMessage({ type: 'stun_zombie', zombie_id: zombie.id });
