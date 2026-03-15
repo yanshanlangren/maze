@@ -234,6 +234,7 @@
         <h1>3D迷宫逃脱</h1>
         <p class="subtitle">多人合作版 - 2人一房，一人通关全队胜利！</p>
         <button id="startBtn">加入游戏</button>
+        <button id="testBtn" style="background: linear-gradient(45deg, #00aaff, #0066cc); color: #fff;">测试关卡 (3x3)</button>
         <div class="instructions">
             <p>WASD 移动 | 空格 跳跃 | 鼠标 转向 | 左键 攻击</p>
             <p><span style="color:#00ff00">绿色</span> 起点 | <span style="color:#ffd700">金色</span> 终点 | <span style="color:#ff0000">红色</span> 陷阱 | <span style="color:#9370db">紫色</span> 僵尸</p>
@@ -650,37 +651,35 @@
             
             sword.visible = true;
             
-            const forward = new THREE.Vector3(0, 0, -1);
-            forward.applyQuaternion(camera.quaternion);
+            // 简化：直接在相机空间设置剑的位置
+            const dist = 0.8;  // 剑在相机前方的距离
+            const sideOffset = 0.35;  // 左右偏移
+            const vertOffset = -0.25;  // 上下偏移
             
-            const right = new THREE.Vector3(1, 0, 0);
-            right.applyQuaternion(camera.quaternion);
+            // 根据玩家旋转计算剑的世界位置
+            const sinY = Math.sin(player.rotY);
+            const cosY = Math.cos(player.rotY);
             
-            const up = new THREE.Vector3(0, 1, 0);
-            up.applyQuaternion(camera.quaternion);
+            // 玩家看向的方向是 -Z 方向对应的旋转
+            const forwardX = -sinY;
+            const forwardZ = cosY;
+            const rightX = cosY;
+            const rightZ = sinY;
             
-            const basePos = sword.userData.basePos;
-            const swordPos = new THREE.Vector3();
-            swordPos.copy(camera.position);
-            // 剑在前方 -basePos.z (因为 z=-0.8，所以向前0.8)
-            swordPos.add(forward.clone().multiplyScalar(-basePos.z));
-            swordPos.add(right.clone().multiplyScalar(basePos.x));
-            swordPos.add(up.clone().multiplyScalar(basePos.y));
-            sword.position.copy(swordPos);
+            sword.position.set(
+                player.x + forwardX * dist + rightX * sideOffset,
+                player.y + vertOffset,
+                player.z + forwardZ * dist + rightZ * sideOffset
+            );
             
-            sword.quaternion.copy(camera.quaternion);
+            // 剑的旋转：基础旋转 + 相机旋转 + 挥砍动画
+            const swingOffset = swordSwinging ? Math.sin(swordSwingTime / 0.25 * Math.PI) * 1.5 : 0;
             
-            // 挥剑动画：剑从右下划向左上
-            let swingOffset = 0;
-            if (swordSwinging) {
-                // 使用平滑的挥剑曲线
-                const progress = Math.min(swordSwingTime / 0.25, 1);
-                swingOffset = Math.sin(progress * Math.PI) * 1.5;  // 0 -> 最大 -> 0
-            }
-            
-            sword.rotateX(sword.userData.baseRot.x + swingOffset);
-            sword.rotateY(sword.userData.baseRot.y);
-            sword.rotateZ(sword.userData.baseRot.z - swingOffset * 0.3);
+            sword.rotation.set(
+                sword.userData.baseRot.x + swingOffset,
+                player.rotY + sword.userData.baseRot.y,
+                sword.userData.baseRot.z - swingOffset * 0.3
+            );
         }
 
         function swingSword() {
@@ -749,6 +748,7 @@
             document.getElementById('startBtn').onclick = () => {
                 connectToServer();
             };
+            document.getElementById('testBtn').onclick = startTestLevel;
             document.getElementById('restartBtn').onclick = restartGame;
             document.getElementById('replayBtn').onclick = restartGame;
 
@@ -780,10 +780,165 @@
             };
         }
 
+        // ========== 测试模式 ==========
+        let isTestMode = false;
+        const TEST_MAZE_SIZE = 7;  // 3x3 可行走区域，外围墙壁
+        
+        function generateTestMaze() {
+            // 测试关卡：7x7 地图，中间 5x5 可行走
+            maze = [];
+            for (let z = 0; z < TEST_MAZE_SIZE; z++) {
+                maze[z] = [];
+                for (let x = 0; x < TEST_MAZE_SIZE; x++) {
+                    // 外围一圈是墙
+                    if (x === 0 || x === TEST_MAZE_SIZE - 1 || z === 0 || z === TEST_MAZE_SIZE - 1) {
+                        maze[z][x] = 1;
+                    } else {
+                        maze[z][x] = 0;
+                    }
+                }
+            }
+            
+            // 入口在左下角，出口在右上角
+            exitX = TEST_MAZE_SIZE - 2;
+            exitZ = TEST_MAZE_SIZE - 2;
+        }
+
+        function createTestScene() {
+            // 清理旧场景
+            const toRemove = [];
+            scene.traverse(obj => {
+                if (obj.userData.sceneObject) toRemove.push(obj);
+            });
+            toRemove.forEach(obj => scene.remove(obj));
+            
+            traps = [];
+            
+            // 地板
+            const floorGeo = new THREE.PlaneGeometry(TEST_MAZE_SIZE * CELL_SIZE, TEST_MAZE_SIZE * CELL_SIZE);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x2d2d44 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.set(TEST_MAZE_SIZE * CELL_SIZE / 2, 0, TEST_MAZE_SIZE * CELL_SIZE / 2);
+            floor.userData.sceneObject = true;
+            scene.add(floor);
+            
+            // 天花板
+            const ceilingGeo = new THREE.PlaneGeometry(TEST_MAZE_SIZE * CELL_SIZE, TEST_MAZE_SIZE * CELL_SIZE);
+            const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x1a1a2e, side: THREE.BackSide });
+            const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.set(TEST_MAZE_SIZE * CELL_SIZE / 2, WALL_HEIGHT, TEST_MAZE_SIZE * CELL_SIZE / 2);
+            ceiling.userData.sceneObject = true;
+            scene.add(ceiling);
+            
+            // 墙壁
+            const wallGeo = new THREE.BoxGeometry(CELL_SIZE, WALL_HEIGHT, CELL_SIZE);
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x4a4a6a });
+            
+            for (let z = 0; z < TEST_MAZE_SIZE; z++) {
+                for (let x = 0; x < TEST_MAZE_SIZE; x++) {
+                    if (maze[z][x] === 1) {
+                        const wall = new THREE.Mesh(wallGeo, wallMat);
+                        wall.position.set(
+                            x * CELL_SIZE + CELL_SIZE / 2,
+                            WALL_HEIGHT / 2,
+                            z * CELL_SIZE + CELL_SIZE / 2
+                        );
+                        wall.userData.sceneObject = true;
+                        scene.add(wall);
+                    }
+                }
+            }
+            
+            // 入口标记（绿色）- 左下角 (1, 1)
+            const entryGeo = new THREE.PlaneGeometry(CELL_SIZE * 1.5, CELL_SIZE * 1.5);
+            const entryMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 });
+            const entry = new THREE.Mesh(entryGeo, entryMat);
+            entry.rotation.x = -Math.PI / 2;
+            entry.position.set(1 * CELL_SIZE + CELL_SIZE/2, 0.01, 1 * CELL_SIZE + CELL_SIZE/2);
+            entry.userData.sceneObject = true;
+            scene.add(entry);
+            
+            // 出口标记（金色）
+            const exitGeo = new THREE.PlaneGeometry(CELL_SIZE * 1.5, CELL_SIZE * 1.5);
+            const exitMat = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.5 });
+            const exitMesh = new THREE.Mesh(exitGeo, exitMat);
+            exitMesh.rotation.x = -Math.PI / 2;
+            exitMesh.position.set(exitX * CELL_SIZE + CELL_SIZE/2, 0.01, exitZ * CELL_SIZE + CELL_SIZE/2);
+            exitMesh.userData.sceneObject = true;
+            scene.add(exitMesh);
+            
+            // 一个陷阱在中间位置 (2, 2)
+            const trapGeo = new THREE.PlaneGeometry(TRAP_SIZE * 2, TRAP_SIZE * 2);
+            const trapMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.6 });
+            const trap = new THREE.Mesh(trapGeo, trapMat);
+            trap.rotation.x = -Math.PI / 2;
+            trap.position.set(2 * CELL_SIZE + CELL_SIZE/2, 0.02, 2 * CELL_SIZE + CELL_SIZE/2);
+            trap.userData.sceneObject = true;
+            scene.add(trap);
+            traps.push({ gx: 2, gz: 2, mesh: trap });
+            
+            // 玩家灯光
+            const playerLight = new THREE.PointLight(0xffffff, 1, 30);
+            playerLight.name = 'playerLight';
+            playerLight.position.set(player.x, player.y + 2, player.z);
+            scene.add(playerLight);
+        }
+
+        function generateTestZombies() {
+            zombies.forEach(z => z.remove());
+            zombies = [];
+            
+            // 一个僵尸在 (3, 3) 位置，靠近出口
+            zombies.push(new Zombie(3, 3, 0));
+            
+            document.getElementById('zombieCount').textContent = zombies.length;
+        }
+
+        function startTestLevel() {
+            isTestMode = true;
+            document.getElementById('startScreen').style.display = 'none';
+            document.getElementById('gameOver').style.display = 'none';
+            document.getElementById('winScreen').style.display = 'none';
+            
+            player.lives = 3;
+            level = 1;
+            
+            // 生成测试关卡
+            generateTestMaze();
+            createTestScene();
+            generateTestZombies();
+            
+            // 玩家出生在 (1, 1) 位置
+            const spawnPos = gridToWorld(1, 1);
+            player.x = spawnPos.x;
+            player.y = PLAYER_HEIGHT;
+            player.z = spawnPos.z;
+            player.vx = player.vy = player.vz = 0;
+            player.rotY = Math.PI * 0.25;  // 面向右上
+            player.rotX = 0;
+            player.grounded = true;
+            player.lastDamageTime = 0;
+            lastAttackTime = -Infinity;
+            
+            camera.position.set(player.x, player.y, player.z);
+            camera.rotation.set(0, 0, 0);
+            camera.rotateY(player.rotY);
+            camera.rotateX(player.rotX);
+            
+            document.getElementById('level').textContent = '测试';
+            updateLivesUI();
+            
+            running = true;
+            document.body.requestPointerLock();
+        }
+
         function generateMaze() {
             maze = [];
             for (let z = 0; z < MAZE_SIZE; z++) {
                 maze[z] = [];
+
                 for (let x = 0; x < MAZE_SIZE; x++) {
                     maze[z][x] = 1;
                 }
@@ -1119,8 +1274,9 @@
         // ========== 碰撞检测 ==========
         function canMoveTo(x, z) {
             const { gx, gz } = worldToGrid(x, z);
+            const size = isTestMode ? TEST_MAZE_SIZE : MAZE_SIZE;
             
-            if (gx < 0 || gx >= MAZE_SIZE || gz < 0 || gz >= MAZE_SIZE) return false;
+            if (gx < 0 || gx >= size || gz < 0 || gz >= size) return false;
             
             const margin = PLAYER_RADIUS;
             const corners = [
@@ -1132,7 +1288,7 @@
             
             for (const corner of corners) {
                 const { gx: cgx, gz: cgz } = worldToGrid(corner.x, corner.z);
-                if (cgx < 0 || cgx >= MAZE_SIZE || cgz < 0 || cgz >= MAZE_SIZE) return false;
+                if (cgx < 0 || cgx >= size || cgz < 0 || cgz >= size) return false;
                 if (maze[cgz][cgx] === 1) return false;
             }
             
@@ -1142,7 +1298,7 @@
         // ========== 攻击 ==========
         function attackZombie() {
             const attackRange = 3.5;
-            const attackAngle = Math.PI / 2;  // 攻击角度范围90度
+            const attackAngle = Math.PI * 0.6;  // 攻击角度范围108度
 
             for (const zombie of zombies) {
                 if (zombie.stunned) continue;
@@ -1152,20 +1308,21 @@
                 const dist = Math.sqrt(dx * dx + dz * dz);
 
                 if (dist < attackRange) {
-                    // 计算僵尸相对于玩家的角度
-                    // Three.js 中 rotY=0 看向 -Z，rotY=π/2 看向 +X
-                    // 所以玩家看向的方向向量为 (sin(rotY), 0, -cos(rotY))
-                    // 或者说玩家朝向角度 = rotY + π（因为标准角度0指向+Z，π指向-Z）
-                    const playerLookAngle = player.rotY + Math.PI;  // 转换为标准角度
-                    const angleToZombie = Math.atan2(dx, dz);  // 标准角度计算
+                    // 简化的角度计算
+                    // 玩家朝向向量：(sin(rotY), 0, -cos(rotY))
+                    // 到僵尸的向量：(dx/dist, 0, dz/dist)
+                    const lookX = Math.sin(player.rotY);
+                    const lookZ = -Math.cos(player.rotY);
+                    const toZombieX = dx / dist;
+                    const toZombieZ = dz / dist;
                     
-                    let angleDiff = angleToZombie - playerLookAngle;
-                    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+                    // 点积计算夹角余弦
+                    const dot = lookX * toZombieX + lookZ * toZombieZ;
+                    const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+                    
+                    console.log(`[Attack] dist=${dist.toFixed(2)}, angle=${(angle * 180 / Math.PI).toFixed(1)}°, dot=${dot.toFixed(3)}`);
 
-                    console.log(`[Attack] dist=${dist.toFixed(2)}, angleDiff=${(angleDiff * 180 / Math.PI).toFixed(1)}°, rotY=${(player.rotY * 180 / Math.PI).toFixed(1)}°`);
-
-                    if (Math.abs(angleDiff) < attackAngle) {
+                    if (angle < attackAngle) {
                         console.log(`[Attack] 击中僵尸!`);
                         zombie.stun();
                         // 同步给其他玩家
@@ -1207,7 +1364,8 @@
             const ctx = minimapCtx;
             const canvas = ctx.canvas;
             const { gx: px, gz: pz } = worldToGrid(player.x, player.z);
-            const range = 8;
+            const size = isTestMode ? TEST_MAZE_SIZE : MAZE_SIZE;
+            const range = isTestMode ? 4 : 8;
             
             ctx.fillStyle = '#111';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1219,7 +1377,7 @@
                     const gx = px + dx;
                     const gz = pz + dz;
                     
-                    if (gx < 0 || gx >= MAZE_SIZE || gz < 0 || gz >= MAZE_SIZE) continue;
+                    if (gx < 0 || gx >= size || gz < 0 || gz >= size) continue;
                     
                     const screenX = (dx + range) * cellSize;
                     const screenY = (dz + range) * cellSize;
@@ -1331,6 +1489,17 @@
             const exitGridX = Math.floor(exitX);
             const exitGridZ = Math.floor(exitZ);
             
+            // 测试模式：到达出口即可通关
+            if (isTestMode) {
+                if (Math.abs(gx - exitGridX) <= 1 && Math.abs(gz - exitGridZ) <= 1) {
+                    running = false;
+                    document.getElementById('winScreen').style.display = 'flex';
+                    document.exitPointerLock();
+                    return true;
+                }
+                return false;
+            }
+            
             if (Math.abs(gx - exitGridX) <= 3 && Math.abs(gz - exitGridZ) <= 3) {
                 // 通知服务器通关
                 sendMessage({ type: 'win' });
@@ -1384,6 +1553,7 @@
             level = 1;
             player.lives = 3;
             mazeSeed = 0;
+            isTestMode = false;
             
             // 重新连接
             if (ws) {
