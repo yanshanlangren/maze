@@ -1,9 +1,11 @@
 [project]
-entrypoint = "index.html"
+entrypoint = "server.py"
 requires = ["python-3.11"]
 
 [dev]
-run = ["python", "-m", "http.server", "5000"]
+build = ["pip", "install", "aiohttp"]
+run = ["python", "server.py"]
 
 [deploy]
-run = ["python", "-m", "http.server", "5000"]
+build = ["pip", "install", "aiohttp"]
+run = ["python", "server.py"]
