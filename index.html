@@ -897,6 +897,12 @@
         }
 
         function startTestLevel() {
+            // 确保 scene 已初始化
+            if (!scene) {
+                console.error('[Test] Scene not initialized');
+                return;
+            }
+            
             isTestMode = true;
             document.getElementById('startScreen').style.display = 'none';
             document.getElementById('gameOver').style.display = 'none';
@@ -905,12 +911,7 @@
             player.lives = 3;
             level = 1;
             
-            // 生成测试关卡
-            generateTestMaze();
-            createTestScene();
-            generateTestZombies();
-            
-            // 玩家出生在 (1, 1) 位置
+            // 先设置玩家出生位置
             const spawnPos = gridToWorld(1, 1);
             player.x = spawnPos.x;
             player.y = PLAYER_HEIGHT;
@@ -921,6 +922,11 @@
             player.grounded = true;
             player.lastDamageTime = 0;
             lastAttackTime = -Infinity;
+            
+            // 生成测试关卡
+            generateTestMaze();
+            createTestScene();
+            generateTestZombies();
             
             camera.position.set(player.x, player.y, player.z);
             camera.rotation.set(0, 0, 0);
