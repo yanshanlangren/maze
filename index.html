@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -14,6 +14,16 @@
             top: 0; left: 0;
             width: 100%; height: 100%;
             pointer-events: none;
+        }
+        
+        /* comment */
+        #startScreen, #winScreen, #gameOver, #waitingScreen {
+            pointer-events: auto;
+        }
+        
+        /* comment */
+        #ui button, button {
+            pointer-events: auto;
         }
         
         .stat-box {
@@ -139,6 +149,7 @@
             align-items: center;
             background: rgba(0,0,0,0.95);
             z-index: 100;
+            pointer-events: auto;
         }
         
         #winScreen, #gameOver, #waitingScreen { display: none; }
@@ -233,7 +244,7 @@
     <div id="startScreen">
         <h1>3D迷宫逃脱</h1>
         <p class="subtitle">多人合作版 - 2人一房，一人通关全队胜利！</p>
-        <button id="startBtn">加入游戏</button>
+        <button id="startBtn" onclick="document.getElementById('startScreen').style.display = 'none'; connectToServer();">加入游戏</button>
         <button id="testBtn" style="background: linear-gradient(45deg, #00aaff, #0066cc); color: #fff;">测试关卡 (3x3)</button>
         <div class="instructions">
             <p>WASD 移动 | 空格 跳跃 | 鼠标 转向 | 左键 攻击</p>
@@ -266,7 +277,7 @@
         <div style="font-size:1rem;color:#aaa;margin-top:10px">正在进入下一关...</div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="/static/three.min.js"></script>
     <script>
         // ========== 配置 ==========
         const CELL_SIZE = 4;
@@ -281,12 +292,16 @@
         const AIR_DRAG = 8;
         const ATTACK_COOLDOWN_MS = 650;
         const ATTACK_ANIM_MS = 220;
+        const SWORD_SWING_DURATION = 0.34;
+        const ZOMBIE_RESPAWN_INTERVAL_MS = 5000;
         const JUMP_FORCE = 10;
         const GRAVITY = 25;
         const TRAP_SIZE = CELL_SIZE * 0.45;
         const SYNC_INTERVAL = 50; // 同步间隔(ms)
+        const MAX_RECONNECT_ATTEMPTS = 5;
+        const RECONNECT_DELAY_MS = 2000;
 
-        // ========== 全局变量 ==========
+        // ========== comment ==========
         let scene, camera, renderer, minimapCtx;
         let maze = [];
         let player = {
@@ -306,10 +321,17 @@
         let sword = null;
         let swordSwinging = false;
         let swordSwingTime = 0;
+        const swordForward = new THREE.Vector3();
+        const swordRight = new THREE.Vector3();
+        const swordUp = new THREE.Vector3();
+        const swordBaseEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+        const swordBaseQuat = new THREE.Quaternion();
         let lastAttackTime = -Infinity;
         let attackAnimTimer = 0;
         let lastTime = 0;
         let mazeSeed = 0;
+        let lastZombieSpawnTime = 0;
+        let nextZombieId = 0;
 
         // ========== 多人游戏变量 ==========
         let ws = null;
@@ -319,8 +341,11 @@
         let otherPlayers = {};  // 其他玩家 {playerId: {mesh, x, y, z, rotY}}
         let connected = false;
         let lastSyncTime = 0;
+        let reconnectAttempts = 0;
+        let reconnectTimer = null;
+        let isTestMode = false; // comment
 
-        // ========== WebSocket 连接 ==========
+        // ========== comment ==========
         function connectToServer() {
             // 根据页面协议自动选择 ws:// 或 wss://
             const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -348,9 +373,20 @@
                 };
                 
                 ws.onclose = () => {
-                    console.log('[WS] 连接关闭');
+                    console.log('[WS] log');
                     updateConnectionStatus('disconnected');
                     connected = false;
+                    
+                    // comment
+                    if (!isTestMode && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                        console.log(`[WS] 尝试重连 (${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})...`);
+                        reconnectTimer = setTimeout(() => {
+                            reconnectAttempts++;
+                            connectToServer();
+                        }, RECONNECT_DELAY_MS);
+                    } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                        console.error('[WS] error');
+                    }
                 };
                 
                 ws.onerror = (error) => {
@@ -395,19 +431,19 @@
                     break;
                     
                 case 'player_joined':
-                    console.log(`[WS] 玩家 ${data.player_id} 加入房间`);
+                    console.log('[WS] player_joined', data.player_id);
                     createOtherPlayer(data.player_id, data);
                     document.getElementById('playerCount').textContent = Object.keys(otherPlayers).length + 1;
                     break;
                     
                 case 'player_left':
-                    console.log(`[WS] 玩家 ${data.player_id} 离开房间`);
+                    console.log('[WS] player_left', data.player_id);
                     removeOtherPlayer(data.player_id);
                     document.getElementById('playerCount').textContent = Object.keys(otherPlayers).length + 1;
                     break;
                     
                 case 'game_start':
-                    console.log('[WS] 游戏开始');
+                    console.log('[WS] game_start');
                     break;
                     
                 case 'player_update':
@@ -417,6 +453,11 @@
                 case 'player_attack':
                     // 显示其他玩家攻击效果
                     showOtherPlayerAttack(data.player_id);
+                    break;
+                    
+                case 'zombie_stunned':
+                    // comment
+                    handleZombieStunned(data);
                     break;
                     
                 case 'level_complete':
@@ -430,14 +471,14 @@
                 case 'player_hit':
                     // 其他玩家受伤
                     if (data.player_id !== playerId) {
-                        console.log(`[WS] 玩家 ${data.player_id} 受伤, 生命: ${data.lives}`);
+                        console.log('[WS] player_hit', data.player_id, data.lives);
                     }
                     break;
                     
                 case 'game_over':
                     if (data.player_id !== playerId) {
-                        // 显示队友死亡信息
-                        console.log(`[WS] 队友 ${data.player_id} 游戏结束`);
+                        // comment
+                        console.log('[WS] game_over', data.player_id);
                     }
                     break;
             }
@@ -517,6 +558,16 @@
             // 可以添加其他玩家的攻击视觉效果
         }
 
+        function handleZombieStunned(data) {
+            // comment
+            const zombieId = data.zombie_id;
+            const zombie = zombies[zombieId];
+            if (zombie && !zombie.stunned) {
+                zombie.stunned = true;
+                zombie.stunEndTime = Date.now() / 1000 + 3; // comment
+            }
+        }
+
         function updateOtherPlayersVisual(dt) {
             for (const [pid, op] of Object.entries(otherPlayers)) {
                 if (op.mesh) {
@@ -540,9 +591,9 @@
             const text = document.getElementById('popupText');
             
             if (data.winner_id === playerId) {
-                text.textContent = '恭喜！你到达了终点！';
+                text.textContent = 'winner reached exit';
             } else {
-                text.textContent = '队友已到达终点！';
+                text.textContent = 'teammate reached exit';
             }
             
             popup.style.display = 'block';
@@ -578,7 +629,7 @@
             
             // 通知服务器已准备好
             if (!isHost) {
-                // 非房主等待房主发送next_level
+                // comment
             }
         }
 
@@ -636,9 +687,73 @@
             swordGroup.add(pommel);
             
             swordGroup.userData.basePos = { x: 0.5, y: -0.3, z: -0.8 };
-            swordGroup.userData.baseRot = { x: -0.2, y: 0.4, z: -0.7 };
+            // 右手持剑：保持右侧位置，同时镜像手腕朝向，避免“左手握剑感”
+            swordGroup.userData.baseRot = { x: -0.2, y: -0.4, z: 0.7 };
             
             return swordGroup;
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function easeOutCubic(t) {
+            const x = 1 - t;
+            return 1 - x * x * x;
+        }
+
+        function easeInOutCubic(t) {
+            return t < 0.5
+                ? 4 * t * t * t
+                : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function lerpPose(a, b, t) {
+            return {
+                posForward: lerp(a.posForward, b.posForward, t),
+                posSide: lerp(a.posSide, b.posSide, t),
+                posUp: lerp(a.posUp, b.posUp, t),
+                rotX: lerp(a.rotX, b.rotX, t),
+                rotY: lerp(a.rotY, b.rotY, t),
+                rotZ: lerp(a.rotZ, b.rotZ, t)
+            };
+        }
+
+            // 右手持剑视角：前摇(抬手) -> 斩击(右向左) -> 收招
+            function getSwordSwingPose(progress) {
+            const neutral = { posForward: 0, posSide: 0, posUp: 0, rotX: 0, rotY: 0, rotZ: 0 };
+            if (progress <= 0) return neutral;
+
+                const windup = {
+                    // 前摇：收在右侧，避免出现明显前刺
+                    posForward: 0.00,
+                    posSide: 0.12,
+                    posUp: 0.06,
+                    rotX: -0.28,
+                    rotY: -0.18,
+                    rotZ: -0.42
+                };
+                const strike = {
+                    // 斩击：主要做右->左横扫，前后位移尽量小
+                    posForward: 0.02,
+                    posSide: -0.48,
+                    posUp: -0.03,
+                    rotX: 0.62,
+                    rotY: 0.12,
+                    rotZ: 0.92
+                };
+
+            if (progress < 0.28) {
+                const t = easeOutCubic(progress / 0.28);
+                return lerpPose(neutral, windup, t);
+            }
+            if (progress < 0.68) {
+                const t = easeInOutCubic((progress - 0.28) / 0.40);
+                return lerpPose(windup, strike, t);
+            }
+
+            const t = easeOutCubic((progress - 0.68) / 0.32);
+            return lerpPose(strike, neutral, t);
         }
 
         function updateSwordPosition() {
@@ -650,36 +765,32 @@
             }
             
             sword.visible = true;
-            
-            // 简化：直接在相机空间设置剑的位置
-            const dist = 0.8;  // 剑在相机前方的距离
-            const sideOffset = 0.35;  // 左右偏移
-            const vertOffset = -0.25;  // 上下偏移
-            
-            // 根据玩家旋转计算剑的世界位置
-            const sinY = Math.sin(player.rotY);
-            const cosY = Math.cos(player.rotY);
-            
-            // 玩家看向的方向是 -Z 方向对应的旋转
-            const forwardX = -sinY;
-            const forwardZ = cosY;
-            const rightX = cosY;
-            const rightZ = sinY;
-            
-            sword.position.set(
-                player.x + forwardX * dist + rightX * sideOffset,
-                player.y + vertOffset,
-                player.z + forwardZ * dist + rightZ * sideOffset
+
+            const basePos = sword.userData.basePos;
+            const baseRot = sword.userData.baseRot;
+            const swingProgress = swordSwinging ? Math.min(swordSwingTime / SWORD_SWING_DURATION, 1) : 0;
+            const swingPose = getSwordSwingPose(swingProgress);
+            const dist = -basePos.z + swingPose.posForward;
+            const sideOffset = basePos.x + swingPose.posSide;
+            const vertOffset = basePos.y + swingPose.posUp;
+
+            // 使用相机朝向计算剑位置，保证与视角(yaw/pitch)一致
+            swordForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+            swordRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+            swordUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
+            sword.position.copy(camera.position)
+                .addScaledVector(swordForward, dist)
+                .addScaledVector(swordRight, sideOffset)
+                .addScaledVector(swordUp, vertOffset);
+
+            // 剑姿态 = 相机姿态 * 剑的本地基础姿态
+            swordBaseEuler.set(
+                baseRot.x + swingPose.rotX,
+                baseRot.y + swingPose.rotY,
+                baseRot.z + swingPose.rotZ
             );
-            
-            // 剑的旋转：基础旋转 + 相机旋转 + 挥砍动画
-            const swingOffset = swordSwinging ? Math.sin(swordSwingTime / 0.25 * Math.PI) * 1.5 : 0;
-            
-            sword.rotation.set(
-                sword.userData.baseRot.x + swingOffset,
-                player.rotY + sword.userData.baseRot.y,
-                sword.userData.baseRot.z - swingOffset * 0.3
-            );
+            swordBaseQuat.setFromEuler(swordBaseEuler);
+            sword.quaternion.copy(camera.quaternion).multiply(swordBaseQuat);
         }
 
         function swingSword() {
@@ -690,12 +801,10 @@
 
         function updateSwordAnimation(dt) {
             if (!sword) return;
-            
-            const swingDuration = 0.25;
-            
+
             if (swordSwinging) {
                 swordSwingTime += dt;
-                const progress = swordSwingTime / swingDuration;
+                const progress = swordSwingTime / SWORD_SWING_DURATION;
                 
                 if (progress >= 1) {
                     swordSwinging = false;
@@ -742,7 +851,9 @@
             document.addEventListener('keyup', e => keys[e.code] = false);
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('click', () => {
-                if (running) document.body.requestPointerLock();
+                if (running && document.pointerLockElement !== document.body) {
+                    document.body.requestPointerLock();
+                }
             });
 
             document.getElementById('startBtn').onclick = () => {
@@ -781,7 +892,7 @@
         }
 
         // ========== 测试模式 ==========
-        let isTestMode = false;
+        isTestMode = false;
         const TEST_MAZE_SIZE = 7;  // 3x3 可行走区域，外围墙壁
         
         function generateTestMaze() {
@@ -933,11 +1044,14 @@
             camera.rotateY(player.rotY);
             camera.rotateX(player.rotX);
             
-            document.getElementById('level').textContent = '测试';
+            document.getElementById('level').textContent = 'test';
             updateLivesUI();
             
             running = true;
-            document.body.requestPointerLock();
+            document.getElementById('startScreen').style.display = 'none';
+            
+            // comment
+            // comment
         }
 
         function generateMaze() {
@@ -1315,9 +1429,9 @@
 
                 if (dist < attackRange) {
                     // 简化的角度计算
-                    // 玩家朝向向量：(sin(rotY), 0, -cos(rotY))
+                    // 相机前向在XZ平面的方向：(-sin(rotY), -cos(rotY))
                     // 到僵尸的向量：(dx/dist, 0, dz/dist)
-                    const lookX = Math.sin(player.rotY);
+                    const lookX = -Math.sin(player.rotY);
                     const lookZ = -Math.cos(player.rotY);
                     const toZombieX = dx / dist;
                     const toZombieZ = dz / dist;
@@ -1464,7 +1578,7 @@
 
         // ========== UI更新 ==========
         function updateLivesUI() {
-            document.getElementById('lives').textContent = '❤️'.repeat(player.lives) + '🖤'.repeat(3 - player.lives);
+            document.getElementById('lives').textContent = 'HP: ' + player.lives + '/3';
         }
 
         function playerHit() {
@@ -1533,6 +1647,7 @@
             running = true;
             
             document.body.requestPointerLock();
+            // comment
         }
 
         function loadLevel() {
@@ -1555,23 +1670,42 @@
             updateLivesUI();
         }
 
+        function clearOtherPlayers() {
+            // comment
+            for (const [pid, op] of Object.entries(otherPlayers)) {
+                if (op.mesh) {
+                    scene.remove(op.mesh);
+                }
+            }
+            otherPlayers = {};
+        }
+
         function restartGame() {
             level = 1;
             player.lives = 3;
             mazeSeed = 0;
             isTestMode = false;
+            reconnectAttempts = 0;
             
-            // 重新连接
+            // comment
+            clearOtherPlayers();
+            
+            // comment
             if (ws) {
                 ws.close();
+            }
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
             }
             
             document.getElementById('startScreen').style.display = 'flex';
             document.getElementById('gameOver').style.display = 'none';
             document.getElementById('winScreen').style.display = 'none';
+            document.getElementById('levelCompletePopup').style.display = 'none';
         }
 
-        // ========== 主循环 ==========
+        // ========== comment ==========
         function animate(time = 0) {
             requestAnimationFrame(animate);
             
@@ -1676,7 +1810,7 @@
 
             // 检查胜利
             if (checkWin()) {
-                // 等待服务器返回level_complete
+                // comment
             }
 
             // 同步玩家位置
@@ -1713,7 +1847,11 @@
         });
 
         // 启动
-        window.addEventListener('load', init);
+        if (document.readyState === 'complete') {
+            init();
+        } else {
+            window.addEventListener('load', init);
+        }
     </script>
 </body>
 </html>
