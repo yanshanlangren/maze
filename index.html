@@ -295,9 +295,10 @@
         const ATTACK_ANIM_MS = 220;
         const SWORD_SWING_DURATION = 0.34;
         const ZOMBIE_RESPAWN_INTERVAL_MS = 5000;
+        const ZOMBIE_SYNC_INTERVAL_MS = 100;
         const JUMP_FORCE = 10;
         const GRAVITY = 25;
-        const TRAP_SIZE = CELL_SIZE * 0.45;
+        const TRAP_SIZE = CELL_SIZE * 0.45 * 0.75;
         const OTHER_PLAYER_RADIUS = 0.42;
         const REMOTE_YAW_OFFSET = Math.PI;
         const SYNC_INTERVAL = 50; // 同步间隔(ms)
@@ -334,7 +335,9 @@
         let lastTime = 0;
         let mazeSeed = 0;
         let lastZombieSpawnTime = 0;
+        let lastZombieStateSyncTime = 0;
         let nextZombieId = 0;
+        let pendingZombieState = null;
 
         // ========== 多人游戏变量 ==========
         let ws = null;
@@ -347,6 +350,27 @@
         let reconnectAttempts = 0;
         let reconnectTimer = null;
         let isTestMode = false; // comment
+
+        function createSeededRandom(seed) {
+            let state = (Number(seed) >>> 0) || 1;
+            return () => {
+                state = (state * 1664525 + 1013904223) >>> 0;
+                return state / 4294967296;
+            };
+        }
+
+        function getSharedRandom(salt = 0) {
+            const baseSeed = (Number(mazeSeed) >>> 0) || 1;
+            const mixedSeed = (baseSeed ^ ((level * 2654435761) >>> 0) ^ (salt >>> 0)) >>> 0;
+            return createSeededRandom(mixedSeed || 1);
+        }
+
+        function pickSharedSpawnCell(randomFn) {
+            return {
+                gx: Math.floor(randomFn() * (MAZE_SIZE - 12)) + 6,
+                gz: Math.floor(randomFn() * (MAZE_SIZE - 12)) + 6
+            };
+        }
 
         // ========== comment ==========
         function connectToServer() {
@@ -409,6 +433,26 @@
             }
         }
 
+        function updateRoomInfo() {
+            const roomInfo = document.getElementById('roomInfo');
+            if (roomInfo) {
+                roomInfo.textContent = roomId ? `房间: ${roomId} ${isHost ? '(房主)' : ''}` : '未连接';
+            }
+        }
+
+        function setHostRole(nextIsHost) {
+            const becameHost = !isHost && nextIsHost;
+            isHost = nextIsHost;
+            updateRoomInfo();
+
+            if (becameHost && !isTestMode) {
+                lastZombieSpawnTime = performance.now();
+                if (running) {
+                    sendZombieState(true);
+                }
+            }
+        }
+
         function handleServerMessage(data) {
             switch (data.type) {
                 case 'joined':
@@ -416,9 +460,9 @@
                     roomId = data.room_id;
                     mazeSeed = data.maze_seed;
                     level = data.level;
-                    isHost = data.is_host;
+                    pendingZombieState = Array.isArray(data.zombies) ? data.zombies : null;
+                    setHostRole(Boolean(data.is_host));
                     
-                    document.getElementById('roomInfo').textContent = `房间: ${roomId} ${isHost ? '(房主)' : ''}`;
                     console.log(`[WS] 已加入房间 ${roomId}, 玩家ID: ${playerId}`);
                     
                     // 添加已有的其他玩家
@@ -463,6 +507,12 @@
                     handleZombieStunned(data);
                     break;
                     
+                case 'zombie_state':
+                    if (!isHost) {
+                        applyZombieStateSnapshot(data.zombies);
+                    }
+                    break;
+                    
                 case 'level_complete':
                     handleLevelComplete(data);
                     break;
@@ -483,6 +533,10 @@
                         // comment
                         console.log('[WS] game_over', data.player_id);
                     }
+                    break;
+
+                case 'host_changed':
+                    setHostRole(data.host_id === playerId);
                     break;
             }
         }
@@ -595,7 +649,10 @@
 
         function handleZombieStunned(data) {
             const zombieId = data.zombie_id;
-            removeZombieById(zombieId);
+            const removed = removeZombieById(zombieId);
+            if (removed && isHost) {
+                sendZombieState(true);
+            }
             if (data.by_player) {
                 showOtherPlayerAttack(data.by_player);
             }
@@ -667,31 +724,8 @@
             document.getElementById('levelCompletePopup').style.display = 'none';
             level = data.level;
             mazeSeed = data.maze_seed;
-            
-            // 重置玩家位置
-            const spawnPos = gridToWorld(3, 3);
-            player.x = spawnPos.x;
-            player.y = PLAYER_HEIGHT;
-            player.z = spawnPos.z;
-            player.vx = player.vy = player.vz = 0;
-            player.rotY = Math.PI * 0.75;
-            player.rotX = 0;
-            player.grounded = true;
-            player.lastDamageTime = 0;
-            lastAttackTime = -Infinity;
-            
-            // 重新生成关卡
-            generateMaze();
-            createScene();
-            generateZombies();
-            
-            document.getElementById('level').textContent = level;
-            updateLivesUI();
-            
-            // 通知服务器已准备好
-            if (!isHost) {
-                // comment
-            }
+
+            loadLevel();
         }
 
         // ========== 创建剑模型 ==========
@@ -1133,11 +1167,7 @@
             }
             
             // 使用种子生成伪随机数
-            let seed = mazeSeed || Date.now();
-            const seededRandom = () => {
-                seed = (seed * 9301 + 49297) % 233280;
-                return seed / 233280;
-            };
+            const seededRandom = createSeededRandom(mazeSeed || Date.now());
             
             const stack = [[1, 1]];
             maze[1][1] = 0;
@@ -1263,13 +1293,13 @@
             const trapCount = 8 + level * 2;
             let placed = 0;
             let attempts = 0;
+            const random = getSharedRandom(0xa511e9b3);
             
             const trapGeo = new THREE.PlaneGeometry(TRAP_SIZE * 2, TRAP_SIZE * 2);
             const trapMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5 });
             
             while (placed < trapCount && attempts < 500) {
-                const gx = Math.floor(Math.random() * (MAZE_SIZE - 12)) + 6;
-                const gz = Math.floor(Math.random() * (MAZE_SIZE - 12)) + 6;
+                const { gx, gz } = pickSharedSpawnCell(random);
                 
                 if (maze[gz][gx] === 0 && !(gx <= 8 && gz <= 8) && !(gx >= MAZE_SIZE-9 && gz >= MAZE_SIZE-9)) {
                     // 检查是否连续
@@ -1360,7 +1390,7 @@
                 this.mesh.add(this.stunStars);
             }
 
-            update(dt) {
+            update(dt, canMove = true) {
                 const now = Date.now();
                 if (this.stunned) {
                     const stunTime = now / 1000;
@@ -1407,7 +1437,7 @@
                     return true;
                 }
 
-                if (dist > 1) {
+                if (dist > 1 && canMove) {
                     const moveX = (dx / dist) * this.speed * dt;
                     const moveZ = (dz / dist) * this.speed * dt;
 
@@ -1419,6 +1449,9 @@
 
                     this.mesh.rotation.y = Math.atan2(dx, dz);
                 }
+                const pos = worldToGrid(this.mesh.position.x, this.mesh.position.z);
+                this.gx = pos.gx;
+                this.gz = pos.gz;
                 return false;
             }
 
@@ -1443,19 +1476,104 @@
             return true;
         }
 
+        function serializeZombieState() {
+            return zombies.map(zombie => ({
+                id: zombie.id,
+                gx: zombie.gx,
+                gz: zombie.gz,
+                x: zombie.mesh.position.x,
+                y: zombie.mesh.position.y,
+                z: zombie.mesh.position.z,
+                rot_y: zombie.mesh.rotation.y,
+                stunned: zombie.stunned
+            }));
+        }
+
+        function applyZombieStateSnapshot(states) {
+            if (!Array.isArray(states) || isTestMode) return;
+
+            const keepIds = new Set();
+            for (const state of states) {
+                if (!state || state.id === undefined || state.id === null) continue;
+
+                keepIds.add(state.id);
+
+                let zombie = zombies.find(item => item.id === state.id);
+                const hasGrid = Number.isFinite(state.gx) && Number.isFinite(state.gz);
+                const snapshotGrid = hasGrid
+                    ? { gx: state.gx, gz: state.gz }
+                    : worldToGrid(state.x ?? 0, state.z ?? 0);
+
+                if (!zombie) {
+                    zombie = new Zombie(snapshotGrid.gx, snapshotGrid.gz, state.id);
+                    zombies.push(zombie);
+                }
+
+                zombie.gx = snapshotGrid.gx;
+                zombie.gz = snapshotGrid.gz;
+                zombie.stunned = Boolean(state.stunned);
+
+                if (Number.isFinite(state.x)) zombie.mesh.position.x = state.x;
+                if (Number.isFinite(state.y)) zombie.mesh.position.y = state.y;
+                if (Number.isFinite(state.z)) zombie.mesh.position.z = state.z;
+                if (Number.isFinite(state.rot_y)) zombie.mesh.rotation.y = state.rot_y;
+
+                if (typeof state.id === 'number' && Number.isFinite(state.id)) {
+                    nextZombieId = Math.max(nextZombieId, state.id + 1);
+                }
+            }
+
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                if (!keepIds.has(zombies[i].id)) {
+                    zombies[i].remove();
+                    zombies.splice(i, 1);
+                }
+            }
+
+            document.getElementById('zombieCount').textContent = zombies.length;
+        }
+
+        function sendZombieState(force = false) {
+            if (isTestMode || !isHost) return;
+
+            const nowMs = performance.now();
+            if (!force && nowMs - lastZombieStateSyncTime < ZOMBIE_SYNC_INTERVAL_MS) {
+                return;
+            }
+
+            lastZombieStateSyncTime = nowMs;
+            sendMessage({ type: 'zombie_state', zombies: serializeZombieState() });
+        }
+
+        function canPlaceInitialZombieAt(gx, gz, minDistance = 4) {
+            if (maze[gz][gx] !== 0) return false;
+            if (gx <= 9 && gz <= 9) return false;
+            if (gx >= MAZE_SIZE - 10 && gz >= MAZE_SIZE - 10) return false;
+
+            return !zombies.some(z => Math.abs(z.gx - gx) + Math.abs(z.gz - gz) < minDistance);
+        }
+
         function canSpawnZombieAt(gx, gz, minDistance = 4) {
             if (maze[gz][gx] !== 0) return false;
             if (gx <= 9 && gz <= 9) return false;
             if (gx >= MAZE_SIZE - 10 && gz >= MAZE_SIZE - 10) return false;
 
-            const { gx: px, gz: pz } = worldToGrid(player.x, player.z);
-            if (Math.abs(px - gx) + Math.abs(pz - gz) < minDistance) return false;
+            const playerCells = [{ gx: worldToGrid(player.x, player.z).gx, gz: worldToGrid(player.x, player.z).gz }];
+            for (const otherPlayer of Object.values(otherPlayers)) {
+                playerCells.push(worldToGrid(otherPlayer.x, otherPlayer.z));
+            }
+
+            if (playerCells.some(cell => Math.abs(cell.gx - gx) + Math.abs(cell.gz - gz) < minDistance)) {
+                return false;
+            }
 
             const tooClose = zombies.some(z => Math.abs(z.gx - gx) + Math.abs(z.gz - gz) < minDistance);
             return !tooClose;
         }
 
         function spawnOneZombie() {
+            if (!isTestMode && !isHost) return false;
+
             let attempts = 0;
             while (attempts < 200) {
                 const gx = Math.floor(Math.random() * (MAZE_SIZE - 12)) + 6;
@@ -1474,15 +1592,15 @@
             zombies.forEach(z => z.remove());
             zombies = [];
             nextZombieId = 0;
+            const random = getSharedRandom(0x7f4a7c15);
             
             const zombieCount = Math.min(2 + level, 8);
             let placed = 0;
             let attempts = 0;
 
             while (placed < zombieCount && attempts < 400) {
-                const gx = Math.floor(Math.random() * (MAZE_SIZE - 12)) + 6;
-                const gz = Math.floor(Math.random() * (MAZE_SIZE - 12)) + 6;
-                if (canSpawnZombieAt(gx, gz)) {
+                const { gx, gz } = pickSharedSpawnCell(random);
+                if (canPlaceInitialZombieAt(gx, gz)) {
                     zombies.push(new Zombie(gx, gz, nextZombieId++));
                     placed++;
                 }
@@ -1605,7 +1723,9 @@
                     if (angle < attackAngle) {
                         console.log(`[Attack] 击杀僵尸!`);
                         const deadZombieId = zombie.id;
-                        removeZombieById(deadZombieId);
+                        if (removeZombieById(deadZombieId) && isHost) {
+                            sendZombieState(true);
+                        }
                         // 同步给其他玩家（沿用 zombie_stunned 消息类型）
                         sendMessage({ type: 'stun_zombie', zombie_id: deadZombieId });
                         break;
@@ -1815,6 +1935,8 @@
             generateMaze();
             createScene();
             generateZombies();
+            lastZombieStateSyncTime = 0;
+            lastZombieSpawnTime = performance.now();
 
             const spawnPos = gridToWorld(3, 3);
             player.x = spawnPos.x;
@@ -1829,6 +1951,15 @@
 
             document.getElementById('level').textContent = level;
             updateLivesUI();
+
+            if (pendingZombieState && pendingZombieState.length > 0) {
+                applyZombieStateSnapshot(pendingZombieState);
+            }
+            pendingZombieState = null;
+
+            if (isHost) {
+                sendZombieState(true);
+            }
         }
 
         function clearOtherPlayers() {
@@ -1847,6 +1978,8 @@
             mazeSeed = 0;
             isTestMode = false;
             reconnectAttempts = 0;
+            pendingZombieState = null;
+            lastZombieStateSyncTime = 0;
             
             // comment
             clearOtherPlayers();
@@ -1959,15 +2092,21 @@
             }
 
             // 僵尸更新
+            const zombieSimulationAuthority = isTestMode || isHost;
             for (const zombie of zombies) {
-                if (zombie.update(dt)) {
+                if (zombie.update(dt, zombieSimulationAuthority)) {
                     playerHit();
                 }
             }
             const nowMs = performance.now();
-            if (!isTestMode && nowMs - lastZombieSpawnTime >= ZOMBIE_RESPAWN_INTERVAL_MS) {
-                spawnOneZombie();
+            if (!isTestMode && isHost && nowMs - lastZombieSpawnTime >= ZOMBIE_RESPAWN_INTERVAL_MS) {
+                if (spawnOneZombie()) {
+                    sendZombieState(true);
+                }
                 lastZombieSpawnTime = nowMs;
+            }
+            if (!isTestMode && isHost) {
+                sendZombieState();
             }
             updateLivesUI();
 

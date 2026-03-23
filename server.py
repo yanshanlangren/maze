@@ -48,6 +48,8 @@ class Room:
         self.created_at = time.time()
         self.game_started = False
         self.winner: Optional[str] = None
+        self.host_id: Optional[str] = None
+        self.zombie_state = []
 
 
 # ===== Globals =====
@@ -78,27 +80,38 @@ def find_available_room() -> Optional[Room]:
 def add_player_to_room(player: Player, room: Room) -> None:
     player.room_id = room.id
     room.players[player.id] = player
+    if room.host_id is None:
+        room.host_id = player.id
     logger.info("[Room] Player %s joined %s (%d players)", player.id, room.id, len(room.players))
 
 
-def remove_player_from_room(player: Player) -> None:
+def remove_player_from_room(player: Player) -> Optional[str]:
+    new_host_id = None
     if player.room_id and player.room_id in rooms:
         room = rooms[player.room_id]
+        was_host = room.host_id == player.id
         if player.id in room.players:
             del room.players[player.id]
             logger.info("[Room] Player %s left %s (%d players)", player.id, room.id, len(room.players))
 
-        if not room.players:
+        if room.players and was_host:
+            room.host_id = next(iter(room.players))
+            new_host_id = room.host_id
+            logger.info("[Room] Reassigned host of %s to %s", room.id, room.host_id)
+        elif not room.players:
+            room.host_id = None
+            room.zombie_state = []
             del rooms[player.room_id]
             logger.info("[Room] Deleted empty room %s", room.id)
 
     player.room_id = None
+    return new_host_id
 
 
 # ===== Messaging =====
 async def send_to_player(player: Player, message: dict) -> None:
     try:
-        if player.ws and not player.ws.closed:
+        if player.ws is not None and not player.ws.closed:
             await player.ws.send_json(message)
     except Exception as exc:
         logger.warning("[Error] Failed to send message: %s", exc)
@@ -131,7 +144,8 @@ async def handle_join(player: Player, data: dict) -> None:
                 pid: {"x": p.x, "y": p.y, "z": p.z, "rot_y": p.rot_y}
                 for pid, p in room.players.items()
             },
-            "is_host": len(room.players) == 1,
+            "is_host": player.id == room.host_id,
+            "zombies": room.zombie_state,
         },
     )
 
@@ -193,9 +207,33 @@ async def handle_stun_zombie(player: Player, data: dict) -> None:
         return
 
     room = rooms[player.room_id]
+    zombie_id = data.get("zombie_id")
+    room.zombie_state = [z for z in room.zombie_state if z.get("id") != zombie_id]
     await broadcast_to_room(
         room,
-        {"type": "zombie_stunned", "zombie_id": data.get("zombie_id"), "by_player": player.id},
+        {"type": "zombie_stunned", "zombie_id": zombie_id, "by_player": player.id},
+        exclude_player_id=player.id,
+    )
+
+
+async def handle_zombie_state(player: Player, data: dict) -> None:
+    if not player.room_id or player.room_id not in rooms:
+        return
+
+    room = rooms[player.room_id]
+    if room.host_id != player.id:
+        logger.warning("[Warning] Ignored zombie state from non-host %s in room %s", player.id, room.id)
+        return
+
+    zombie_state = data.get("zombies", [])
+    if not isinstance(zombie_state, list):
+        logger.warning("[Warning] Invalid zombie state payload from %s", player.id)
+        return
+
+    room.zombie_state = zombie_state
+    await broadcast_to_room(
+        room,
+        {"type": "zombie_state", "zombies": room.zombie_state},
         exclude_player_id=player.id,
     )
 
@@ -225,6 +263,7 @@ async def handle_win(player: Player, data: dict) -> None:
     room.level += 1
     room.maze_seed = MAZE_SEED_BASE + room.level * 1000 + int(time.time()) % 10000
     room.winner = None
+    room.zombie_state = []
 
     for p in room.players.values():
         p.x = 14.0
@@ -268,6 +307,7 @@ async def handle_message(player: Player, message: dict) -> None:
         "update": handle_update,
         "attack": handle_attack,
         "stun_zombie": handle_stun_zombie,
+        "zombie_state": handle_zombie_state,
         "win": handle_win,
         "player_hit": handle_player_hit,
         "game_over": handle_game_over,
@@ -323,11 +363,13 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
     finally:
         logger.info("[Player] Disconnected %s", player_id)
 
-        if player.room_id and player.room_id in rooms:
-            room = rooms[player.room_id]
-            await broadcast_to_room(room, {"type": "player_left", "player_id": player_id})
+        room = rooms.get(player.room_id) if player.room_id else None
+        if room is not None:
+            await broadcast_to_room(room, {"type": "player_left", "player_id": player_id}, exclude_player_id=player_id)
 
-        remove_player_from_room(player)
+        new_host_id = remove_player_from_room(player)
+        if room is not None and new_host_id:
+            await broadcast_to_room(room, {"type": "host_changed", "host_id": new_host_id})
         players.pop(player_id, None)
 
     return ws
@@ -352,11 +394,15 @@ async def cleanup_inactive_players() -> None:
             if player is None:
                 continue
 
-            if player.room_id and player.room_id in rooms:
-                room = rooms[player.room_id]
-                asyncio.create_task(broadcast_to_room(room, {"type": "player_left", "player_id": player_id}))
+            room = rooms.get(player.room_id) if player.room_id else None
+            if room is not None:
+                asyncio.create_task(
+                    broadcast_to_room(room, {"type": "player_left", "player_id": player_id}, exclude_player_id=player_id)
+                )
 
-            remove_player_from_room(player)
+            new_host_id = remove_player_from_room(player)
+            if room is not None and new_host_id:
+                asyncio.create_task(broadcast_to_room(room, {"type": "host_changed", "host_id": new_host_id}))
             players.pop(player_id, None)
 
         logger.info("[Status] online players=%d, active rooms=%d", len(players), len(rooms))
