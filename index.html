@@ -284,12 +284,13 @@
         const MAZE_SIZE = 32;
         const WALL_HEIGHT = 4;
         const PLAYER_HEIGHT = 1.6;
-        const PLAYER_RADIUS = 0.35;
+        const PLAYER_RADIUS = 0.5;
         const MOVE_SPEED = 35;
         const MOVE_ACCEL = 50;
         const GROUND_DRAG = 8;
         const AIR_ACCEL_FACTOR = 1;
         const AIR_DRAG = 8;
+        const LOOK_KEY_SPEED = 2.2;
         const ATTACK_COOLDOWN_MS = 650;
         const ATTACK_ANIM_MS = 220;
         const SWORD_SWING_DURATION = 0.34;
@@ -297,6 +298,8 @@
         const JUMP_FORCE = 10;
         const GRAVITY = 25;
         const TRAP_SIZE = CELL_SIZE * 0.45;
+        const OTHER_PLAYER_RADIUS = 0.42;
+        const REMOTE_YAW_OFFSET = Math.PI;
         const SYNC_INTERVAL = 50; // 同步间隔(ms)
         const MAX_RECONNECT_ATTEMPTS = 5;
         const RECONNECT_DELAY_MS = 2000;
@@ -491,8 +494,19 @@
         }
 
         // ========== 其他玩家管理 ==========
+        function createOtherPlayerSword() {
+            const remoteSword = createSword();
+            remoteSword.scale.setScalar(0.66);
+            // 第三人称持剑基准：放在右前方，避免看起来“插在躯干里”
+            remoteSword.userData.remoteBasePos = { x: 0.58, y: 1.02, z: 0.42 };
+            // 额外顺势旋转 90°，避免第三人称看起来像“插在脖子里”
+            remoteSword.userData.remoteBaseRot = { x: 0.42 + Math.PI / 2, y: -0.72, z: 1.18 };
+            return remoteSword;
+        }
+
         function createOtherPlayer(pid, data) {
             if (otherPlayers[pid]) return;
+            const worldY = (data.y !== undefined ? data.y : PLAYER_HEIGHT) - PLAYER_HEIGHT;
             
             // 创建其他玩家的3D模型（简单圆柱体+球体）
             const group = new THREE.Group();
@@ -513,11 +527,24 @@
             const head = new THREE.Mesh(headGeo, bodyMat);
             head.position.y = 1.6;
             group.add(head);
+
+            // 队友眼睛（用于直观看朝向）
+            const eyeGeo = new THREE.SphereGeometry(0.045, 8, 8);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+            leftEye.position.set(-0.08, 1.62, 0.22);
+            group.add(leftEye);
+            const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+            rightEye.position.set(0.08, 1.62, 0.22);
+            group.add(rightEye);
+
+            const swordMesh = createOtherPlayerSword();
+            group.add(swordMesh);
             
             // 设置位置
-            group.position.set(data.x || 14, data.y || PLAYER_HEIGHT, data.z || 14);
+            group.position.set(data.x || 14, worldY, data.z || 14);
             if (data.rot_y !== undefined) {
-                group.rotation.y = data.rot_y;
+                group.rotation.y = data.rot_y + REMOTE_YAW_OFFSET;
             }
             
             scene.add(group);
@@ -525,9 +552,13 @@
             otherPlayers[pid] = {
                 mesh: group,
                 x: data.x || 14,
-                y: data.y || PLAYER_HEIGHT,
+                y: worldY,
                 z: data.z || 14,
-                rotY: data.rot_y || 0
+                rotY: data.rot_y || 0,
+                rotX: data.rot_x || 0,
+                sword: swordMesh,
+                attacking: false,
+                attackTime: 0
             };
             
             console.log(`[Player] 创建其他玩家模型: ${pid}`);
@@ -541,10 +572,11 @@
             }
             
             // 平滑移动
-            op.x = data.x;
-            op.y = data.y;
-            op.z = data.z;
-            op.rotY = data.rot_y;
+            if (data.x !== undefined) op.x = data.x;
+            if (data.y !== undefined) op.y = data.y - PLAYER_HEIGHT;
+            if (data.z !== undefined) op.z = data.z;
+            if (data.rot_y !== undefined) op.rotY = data.rot_y;
+            if (data.rot_x !== undefined) op.rotX = data.rot_x;
         }
 
         function removeOtherPlayer(pid) {
@@ -555,16 +587,17 @@
         }
 
         function showOtherPlayerAttack(pid) {
-            // 可以添加其他玩家的攻击视觉效果
+            const op = otherPlayers[pid];
+            if (!op) return;
+            op.attacking = true;
+            op.attackTime = 0;
         }
 
         function handleZombieStunned(data) {
-            // comment
             const zombieId = data.zombie_id;
-            const zombie = zombies[zombieId];
-            if (zombie && !zombie.stunned) {
-                zombie.stunned = true;
-                zombie.stunEndTime = Date.now() / 1000 + 3; // comment
+            removeZombieById(zombieId);
+            if (data.by_player) {
+                showOtherPlayerAttack(data.by_player);
             }
         }
 
@@ -577,10 +610,38 @@
                     op.mesh.position.z += (op.z - op.mesh.position.z) * 10 * dt;
                     
                     // 平滑旋转
-                    let rotDiff = op.rotY - op.mesh.rotation.y;
+                    const targetYaw = op.rotY + REMOTE_YAW_OFFSET;
+                    let rotDiff = targetYaw - op.mesh.rotation.y;
                     while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
                     while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
                     op.mesh.rotation.y += rotDiff * 10 * dt;
+
+                    // 队友持剑动作（跟随其朝向）
+                    if (op.sword) {
+                        if (op.attacking) {
+                            op.attackTime += dt;
+                            if (op.attackTime >= SWORD_SWING_DURATION) {
+                                op.attacking = false;
+                                op.attackTime = 0;
+                            }
+                        }
+
+                        const p = op.attacking ? Math.min(op.attackTime / SWORD_SWING_DURATION, 1) : 0;
+                        const swingPose = getSwordSwingPose(p);
+                        const poseScale = 0.30;
+                        const basePos = op.sword.userData.remoteBasePos;
+                        const baseRot = op.sword.userData.remoteBaseRot;
+                        op.sword.position.set(
+                            basePos.x + swingPose.posSide * poseScale,
+                            basePos.y + swingPose.posUp * poseScale,
+                            basePos.z + swingPose.posForward * poseScale
+                        );
+                        op.sword.rotation.set(
+                            baseRot.x + swingPose.rotX * 0.40,
+                            baseRot.y + swingPose.rotY * 0.40,
+                            baseRot.z + swingPose.rotZ * 0.40
+                        );
+                    }
                 }
             }
         }
@@ -719,28 +780,28 @@
             };
         }
 
-            // 右手持剑视角：前摇(抬手) -> 斩击(右向左) -> 收招
+            // 右手持剑视角：前摇(后拉) -> 斩击(后向前) -> 收招
             function getSwordSwingPose(progress) {
             const neutral = { posForward: 0, posSide: 0, posUp: 0, rotX: 0, rotY: 0, rotZ: 0 };
             if (progress <= 0) return neutral;
 
                 const windup = {
-                    // 前摇：收在右侧，避免出现明显前刺
-                    posForward: 0.00,
-                    posSide: 0.12,
-                    posUp: 0.06,
-                    rotX: -0.28,
+                    // 前摇：明显后拉，准备向前劈砍
+                    posForward: -0.20,
+                    posSide: 0.10,
+                    posUp: 0.08,
+                    rotX: -0.45,
                     rotY: -0.18,
                     rotZ: -0.42
                 };
                 const strike = {
-                    // 斩击：主要做右->左横扫，前后位移尽量小
-                    posForward: 0.02,
-                    posSide: -0.48,
-                    posUp: -0.03,
-                    rotX: 0.62,
-                    rotY: 0.12,
-                    rotZ: 0.92
+                    // 斩击：主要向前砍出，横向只做轻微扫动
+                    posForward: 0.34,
+                    posSide: -0.12,
+                    posUp: -0.06,
+                    rotX: 1.08,
+                    rotY: 0.10,
+                    rotZ: 0.36
                 };
 
             if (progress < 0.28) {
@@ -847,7 +908,12 @@
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
             
-            document.addEventListener('keydown', e => keys[e.code] = true);
+            document.addEventListener('keydown', e => {
+                keys[e.code] = true;
+                if (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+                    e.preventDefault();
+                }
+            });
             document.addEventListener('keyup', e => keys[e.code] = false);
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('click', () => {
@@ -1000,9 +1066,11 @@
         function generateTestZombies() {
             zombies.forEach(z => z.remove());
             zombies = [];
+            nextZombieId = 0;
             
             // 一个僵尸在 (3, 3) 位置，靠近出口
-            zombies.push(new Zombie(3, 3, 0));
+            zombies.push(new Zombie(3, 3, nextZombieId++));
+            lastZombieSpawnTime = performance.now();
             
             document.getElementById('zombieCount').textContent = zombies.length;
         }
@@ -1366,28 +1434,62 @@
             }
         }
 
+        function removeZombieById(zombieId) {
+            const idx = zombies.findIndex(z => z.id === zombieId);
+            if (idx === -1) return false;
+            zombies[idx].remove();
+            zombies.splice(idx, 1);
+            document.getElementById('zombieCount').textContent = zombies.length;
+            return true;
+        }
+
+        function canSpawnZombieAt(gx, gz, minDistance = 4) {
+            if (maze[gz][gx] !== 0) return false;
+            if (gx <= 9 && gz <= 9) return false;
+            if (gx >= MAZE_SIZE - 10 && gz >= MAZE_SIZE - 10) return false;
+
+            const { gx: px, gz: pz } = worldToGrid(player.x, player.z);
+            if (Math.abs(px - gx) + Math.abs(pz - gz) < minDistance) return false;
+
+            const tooClose = zombies.some(z => Math.abs(z.gx - gx) + Math.abs(z.gz - gz) < minDistance);
+            return !tooClose;
+        }
+
+        function spawnOneZombie() {
+            let attempts = 0;
+            while (attempts < 200) {
+                const gx = Math.floor(Math.random() * (MAZE_SIZE - 12)) + 6;
+                const gz = Math.floor(Math.random() * (MAZE_SIZE - 12)) + 6;
+                if (canSpawnZombieAt(gx, gz)) {
+                    zombies.push(new Zombie(gx, gz, nextZombieId++));
+                    document.getElementById('zombieCount').textContent = zombies.length;
+                    return true;
+                }
+                attempts++;
+            }
+            return false;
+        }
+
         function generateZombies() {
             zombies.forEach(z => z.remove());
             zombies = [];
+            nextZombieId = 0;
             
             const zombieCount = Math.min(2 + level, 8);
             let placed = 0;
             let attempts = 0;
 
-            while (placed < zombieCount && attempts < 200) {
+            while (placed < zombieCount && attempts < 400) {
                 const gx = Math.floor(Math.random() * (MAZE_SIZE - 12)) + 6;
                 const gz = Math.floor(Math.random() * (MAZE_SIZE - 12)) + 6;
-
-                if (maze[gz][gx] === 0 && !(gx <= 9 && gz <= 9) && !(gx >= MAZE_SIZE-10 && gz >= MAZE_SIZE-10)) {
-                    const tooClose = zombies.some(z => Math.abs(z.gx - gx) + Math.abs(z.gz - gz) < 4);
-                    if (!tooClose) {
-                        zombies.push(new Zombie(gx, gz, placed));
-                        placed++;
-                    }
+                if (canSpawnZombieAt(gx, gz)) {
+                    zombies.push(new Zombie(gx, gz, nextZombieId++));
+                    placed++;
                 }
                 attempts++;
             }
             
+            lastZombieSpawnTime = performance.now();
             document.getElementById('zombieCount').textContent = zombies.length;
         }
 
@@ -1413,6 +1515,64 @@
             }
             
             return true;
+        }
+
+        function resolvePlayerToOtherPlayerCollision(dt) {
+            const minDist = PLAYER_RADIUS + OTHER_PLAYER_RADIUS;
+
+            for (const op of Object.values(otherPlayers)) {
+                if (!op.mesh) continue;
+
+                let dx = player.x - op.mesh.position.x;
+                let dz = player.z - op.mesh.position.z;
+                let distSq = dx * dx + dz * dz;
+
+                if (distSq < 1e-6) {
+                    dx = Math.sin(player.rotY + Math.PI * 0.5);
+                    dz = Math.cos(player.rotY + Math.PI * 0.5);
+                    distSq = dx * dx + dz * dz;
+                }
+
+                const dist = Math.sqrt(distSq);
+                if (dist >= minDist) continue;
+
+                const nx = dx / dist;
+                const nz = dz / dist;
+                const overlap = minDist - dist;
+                const tx = player.x + nx * overlap;
+                const tz = player.z + nz * overlap;
+                let moved = false;
+
+                if (canMoveTo(tx, tz)) {
+                    player.x = tx;
+                    player.z = tz;
+                    moved = true;
+                } else {
+                    if (canMoveTo(tx, player.z)) {
+                        player.x = tx;
+                        moved = true;
+                    }
+                    if (canMoveTo(player.x, tz)) {
+                        player.z = tz;
+                        moved = true;
+                    }
+                }
+
+                if (moved) {
+                    const inward = player.vx * nx + player.vz * nz;
+                    if (inward < 0) {
+                        player.vx -= inward * nx;
+                        player.vz -= inward * nz;
+                    }
+                    const impulse = overlap / Math.max(dt, 0.0001);
+                    player.vx += nx * impulse * 0.12;
+                    player.vz += nz * impulse * 0.12;
+                }
+
+                // 仅本地视觉微调，减少重叠时的穿模感
+                op.mesh.position.x -= nx * overlap * 0.35;
+                op.mesh.position.z -= nz * overlap * 0.35;
+            }
         }
 
         // ========== 攻击 ==========
@@ -1443,10 +1603,11 @@
                     console.log(`[Attack] dist=${dist.toFixed(2)}, angle=${(angle * 180 / Math.PI).toFixed(1)}°, dot=${dot.toFixed(3)}`);
 
                     if (angle < attackAngle) {
-                        console.log(`[Attack] 击中僵尸!`);
-                        zombie.stun();
-                        // 同步给其他玩家
-                        sendMessage({ type: 'stun_zombie', zombie_id: zombie.id });
+                        console.log(`[Attack] 击杀僵尸!`);
+                        const deadZombieId = zombie.id;
+                        removeZombieById(deadZombieId);
+                        // 同步给其他玩家（沿用 zombie_stunned 消息类型）
+                        sendMessage({ type: 'stun_zombie', zombie_id: deadZombieId });
                         break;
                     }
                 }
@@ -1723,10 +1884,17 @@
 
             // 输入
             let moveX = 0, moveZ = 0;
-            if (keys['KeyW'] || keys['ArrowUp']) moveZ = -1;
-            if (keys['KeyS'] || keys['ArrowDown']) moveZ = 1;
-            if (keys['KeyA'] || keys['ArrowLeft']) moveX = -1;
-            if (keys['KeyD'] || keys['ArrowRight']) moveX = 1;
+            if (keys['KeyW']) moveZ = -1;
+            if (keys['KeyS']) moveZ = 1;
+            if (keys['KeyA']) moveX = -1;
+            if (keys['KeyD']) moveX = 1;
+
+            // 方向键控制视角
+            if (keys['ArrowLeft']) player.rotY += LOOK_KEY_SPEED * dt;
+            if (keys['ArrowRight']) player.rotY -= LOOK_KEY_SPEED * dt;
+            if (keys['ArrowUp']) player.rotX += LOOK_KEY_SPEED * dt;
+            if (keys['ArrowDown']) player.rotX -= LOOK_KEY_SPEED * dt;
+            player.rotX = Math.max(-Math.PI/4, Math.min(Math.PI/4, player.rotX));
 
             if (keys['Space'] && player.grounded) {
                 player.vy = JUMP_FORCE;
@@ -1770,6 +1938,8 @@
             if (canMoveTo(player.x, newZ)) player.z = newZ;
             else player.vz = 0;
 
+            resolvePlayerToOtherPlayerCollision(dt);
+
             player.vy -= GRAVITY * dt;
             player.y += player.vy * dt;
             
@@ -1793,6 +1963,11 @@
                 if (zombie.update(dt)) {
                     playerHit();
                 }
+            }
+            const nowMs = performance.now();
+            if (!isTestMode && nowMs - lastZombieSpawnTime >= ZOMBIE_RESPAWN_INTERVAL_MS) {
+                spawnOneZombie();
+                lastZombieSpawnTime = nowMs;
             }
             updateLivesUI();
 
