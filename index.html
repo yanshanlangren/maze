@@ -298,7 +298,8 @@
         const ZOMBIE_SYNC_INTERVAL_MS = 100;
         const JUMP_FORCE = 10;
         const GRAVITY = 25;
-        const TRAP_SIZE = CELL_SIZE * 0.45 * 0.75;
+        const TRAP_SIZE = CELL_SIZE * 0.45 * 0.5;
+        const OTHER_PLAYER_HEAD_FALLBACK_IMAGE_URL = '/static/static/avatar.jpg';
         const OTHER_PLAYER_RADIUS = 0.42;
         const REMOTE_YAW_OFFSET = Math.PI;
         const SYNC_INTERVAL = 50; // 同步间隔(ms)
@@ -350,6 +351,9 @@
         let reconnectAttempts = 0;
         let reconnectTimer = null;
         let isTestMode = false; // comment
+        let otherPlayerHeadTextures = {};
+        let otherPlayerAvatarUrls = [OTHER_PLAYER_HEAD_FALLBACK_IMAGE_URL];
+        let otherPlayerAvatarByPid = {};
 
         function createSeededRandom(seed) {
             let state = (Number(seed) >>> 0) || 1;
@@ -370,6 +374,64 @@
                 gx: Math.floor(randomFn() * (MAZE_SIZE - 12)) + 6,
                 gz: Math.floor(randomFn() * (MAZE_SIZE - 12)) + 6
             };
+        }
+
+        async function loadOtherPlayerAvatarUrls() {
+            try {
+                const response = await fetch('/api/avatars', { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const payload = await response.json();
+                if (payload && Array.isArray(payload.avatars) && payload.avatars.length > 0) {
+                    otherPlayerAvatarUrls = payload.avatars;
+                }
+            } catch (error) {
+                console.warn('[Avatar] 头像列表加载失败，使用默认头像:', error);
+            }
+        }
+
+        function pickOtherPlayerAvatarUrl(pid) {
+            if (otherPlayerAvatarByPid[pid]) {
+                return otherPlayerAvatarByPid[pid];
+            }
+
+            const candidates = otherPlayerAvatarUrls.length > 0
+                ? otherPlayerAvatarUrls
+                : [OTHER_PLAYER_HEAD_FALLBACK_IMAGE_URL];
+            const randomIndex = Math.floor(Math.random() * candidates.length);
+            const selected = candidates[randomIndex];
+            otherPlayerAvatarByPid[pid] = selected;
+            return selected;
+        }
+
+        function getOtherPlayerHeadTexture(imageUrl) {
+            if (otherPlayerHeadTextures[imageUrl]) {
+                return otherPlayerHeadTextures[imageUrl];
+            }
+
+            try {
+                const loader = new THREE.TextureLoader();
+                const texture = loader.load(
+                    imageUrl,
+                    (loadedTexture) => {
+                        loadedTexture.wrapS = THREE.ClampToEdgeWrapping;
+                        loadedTexture.wrapT = THREE.ClampToEdgeWrapping;
+                        loadedTexture.needsUpdate = true;
+                    },
+                    undefined,
+                    (error) => {
+                        console.warn('[Texture] 队友头像加载失败:', imageUrl, error);
+                        delete otherPlayerHeadTextures[imageUrl];
+                    }
+                );
+                otherPlayerHeadTextures[imageUrl] = texture;
+                return texture;
+            } catch (error) {
+                console.warn('[Texture] 队友头像加载异常:', error);
+                return null;
+            }
         }
 
         // ========== comment ==========
@@ -576,21 +638,16 @@
             body.position.y = 0.7;
             group.add(body);
             
-            // 头部
-            const headGeo = new THREE.SphereGeometry(0.25, 8, 8);
-            const head = new THREE.Mesh(headGeo, bodyMat);
+            // 头部（使用 static 目录中的图片作为贴图）
+            const avatarUrl = pickOtherPlayerAvatarUrl(pid);
+            const headTex = getOtherPlayerHeadTexture(avatarUrl);
+            const headGeo = new THREE.SphereGeometry(0.25, 16, 16);
+            const headMat = headTex
+                ? new THREE.MeshStandardMaterial({ map: headTex, roughness: 0.9, metalness: 0.0 })
+                : bodyMat;
+            const head = new THREE.Mesh(headGeo, headMat);
             head.position.y = 1.6;
             group.add(head);
-
-            // 队友眼睛（用于直观看朝向）
-            const eyeGeo = new THREE.SphereGeometry(0.045, 8, 8);
-            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-            const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-            leftEye.position.set(-0.08, 1.62, 0.22);
-            group.add(leftEye);
-            const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-            rightEye.position.set(0.08, 1.62, 0.22);
-            group.add(rightEye);
 
             const swordMesh = createOtherPlayerSword();
             group.add(swordMesh);
@@ -638,6 +695,7 @@
                 scene.remove(otherPlayers[pid].mesh);
                 delete otherPlayers[pid];
             }
+            delete otherPlayerAvatarByPid[pid];
         }
 
         function showOtherPlayerAttack(pid) {
@@ -912,6 +970,7 @@
 
         // ========== 初始化 ==========
         function init() {
+            loadOtherPlayerAvatarUrls();
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a2e);
 
@@ -1970,6 +2029,7 @@
                 }
             }
             otherPlayers = {};
+            otherPlayerAvatarByPid = {};
         }
 
         function restartGame() {

@@ -336,6 +336,27 @@ async def handle_spa_fallback(request: web.Request) -> web.Response:
     return await handle_http(request)
 
 
+async def handle_avatar_list(request: web.Request) -> web.Response:
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    avatars = []
+
+    try:
+        if os.path.isdir(static_dir):
+            names = [
+                name
+                for name in os.listdir(static_dir)
+                if os.path.isfile(os.path.join(static_dir, name))
+                and name.lower().startswith("avatar")
+                and name.lower().endswith(".jpg")
+            ]
+            names.sort()
+            avatars = [f"/static/static/{name}" for name in names]
+    except Exception as exc:
+        logger.warning("[Avatar] Failed to list avatar images: %s", exc)
+
+    return web.json_response({"avatars": avatars})
+
+
 async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -424,6 +445,7 @@ def create_app() -> web.Application:
 
     app.router.add_get("/", handle_http)
     app.router.add_get("/index.html", handle_http)
+    app.router.add_get("/api/avatars", handle_avatar_list)
     app.router.add_get("/ws", handle_websocket)
     app.router.add_static("/static", os.path.dirname(__file__), name="static")
     app.router.add_get("/{tail:.*}", handle_spa_fallback)
